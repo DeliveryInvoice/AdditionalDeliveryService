@@ -159,11 +159,11 @@ elif st.session_state.page == "seller":
         buyer = st.text_input("구매자 이름", placeholder="홍길동")
         address = st.text_input(
             "상세주소",
-            placeholder="서울시 강남구 테헤란로 123",
+            placeholder="00시 00구 000로 123",
         )
         location = st.text_input(
             "배송 위치",
-            placeholder="서울시 강남구 테헤란로",
+            placeholder="00시 00구 000로",
         )
         product = st.text_input("구매 물품", placeholder="무선 이어폰")
         quantity = st.number_input("수량", min_value=1, value=1)
@@ -212,7 +212,7 @@ elif st.session_state.page == "seller":
             st.error("이미 등록된 주문번호입니다.")
 
         elif app_url == "https://your-app.streamlit.app":
-            st.error("실제 Streamlit 앱 주소를 입력해주세요.")
+            st.error("실제 주소를 입력해주세요.")
 
         else:
             token = secrets.token_urlsafe(16)
