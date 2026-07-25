@@ -611,4 +611,4 @@ elif st.session_state.page == "buyer_login":
                 )
 
 
-            st.caption("※ 상세주소는 보안상 가려집니다.") 이코드의 실행화면 을 코랩에서 큐알로 찍어서 나오게 할려고 github를 쓸꺼야 단계별로 알려줘
+            st.caption("※ 상세주소는 보안상 가려집니다.")
