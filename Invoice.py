@@ -21,13 +21,13 @@ def load_orders():
         "ORD001": {
             "pw": "9999",
             "buyer": "홍길동",
-            "address": "서울시 강남구 아무데나로 123",
-            "location": "서울시 강남구 아무데나로",
+            "address": "서울시 강남구 xx로 123",
+            "location": "서울시 강남구 xx로",
             "status": "배송중",
         },
         "ORD002": {
             "pw": "1111",
-            "buyer": "이순신",
+            "buyer": "김xx",
             "address": "서울시 마포구 궁동 456",
             "location": "서울시 마포구 궁동로",
             "status": "배송완료",
@@ -177,7 +177,7 @@ elif st.session_state.page == "seller":
         )
 
         app_url = st.text_input(
-            "Streamlit 앱 주소",
+            "QR생성용 링크(입력된 정보를 포함해요)",
             value="https://your-app.streamlit.app",
         )
 
