@@ -6,14 +6,12 @@ from io import BytesIO
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
-
 st.set_page_config(page_title="배송 확인 시스템")
 
 DRIVERS = {
     "D001": {"pw": "1234", "name": "김기사"},
     "D002": {"pw": "5678", "name": "이기사"},
 }
-
 
 @st.cache_resource
 def load_orders():
@@ -34,7 +32,6 @@ def load_orders():
         },
     }
 
-
 ORDERS = load_orders()
 KST = timezone(timedelta(hours=9))
 
@@ -45,27 +42,21 @@ EXPIRE_MINUTES = {
     "6시간": 360,
     "12시간": 720,
     "24시간": 1440,
-    "48시간": 2880,
-}
-
+    "48시간": 2880,}
 
 def go(page):
     st.session_state.page = page
     st.rerun()
-
 
 def expired(order):
     expires_at = order.get("expires_at")
 
     if not expires_at:
         return False
-
     return datetime.now(KST) >= datetime.fromisoformat(expires_at)
-
 
 def remaining(order):
     expires_at = order.get("expires_at")
-
     if not expires_at:
         return None
 
@@ -77,7 +68,7 @@ def remaining(order):
     )
 
     if seconds <= 0:
-        return "만료됨"
+        return "만료되었습니다."
 
     days, seconds = divmod(seconds, 86400)
     hours, seconds = divmod(seconds, 3600)
@@ -85,12 +76,9 @@ def remaining(order):
 
     if days:
         return f"{days}일 {hours}시간 {minutes}분"
-
     if hours:
         return f"{hours}시간 {minutes}분"
-
     return f"{minutes}분 {seconds}초"
-
 
 def make_qr(url):
     qr = qrcode.make(url)
@@ -98,40 +86,29 @@ def make_qr(url):
     qr.save(buffer, format="PNG")
     return buffer.getvalue()
 
-
 def show_extra(order):
     if "product" in order:
         st.write("**구매 물품:**", order["product"])
-
     if "quantity" in order:
         st.write("**수량:**", f'{order["quantity"]}개')
-
     if "price" in order:
         st.write("**가격:**", f'{order["price"]:,}원')
-
     time_left = remaining(order)
-
     if time_left:
         st.write("**남은 정보 공개시간:**", time_left)
 
-
 def show_expired():
-    st.error("⏰ 정보 열람 시간이 만료되었습니다.")
+    st.error("정보 열람 가능 시간이 만료되었습니다.")
     st.warning("개인정보 보호를 위해 주문 상세정보가 비공개 처리되었습니다.")
-
 
 if "page" not in st.session_state:
     st.session_state.page = "menu"
-
 if "driver" not in st.session_state:
     st.session_state.driver = None
-
 if "generated" not in st.session_state:
     st.session_state.generated = None
 
-
 st.title("배송 확인 시스템")
-
 
 if st.session_state.page == "menu":
     st.subheader("메뉴")
@@ -141,15 +118,12 @@ if st.session_state.page == "menu":
     with col1:
         if st.button("배송기사", use_container_width=True):
             go("driver_login")
-
     with col2:
         if st.button("구매자", use_container_width=True):
             go("buyer_login")
-
     with col3:
         if st.button("판매자", use_container_width=True):
             go("seller")
-
 
 elif st.session_state.page == "seller":
     st.subheader("판매자 주문 등록 및 QR코드 생성")
@@ -282,10 +256,8 @@ elif st.session_state.page == "seller":
 
             with st.expander("QR코드 접속 주소"):
                 st.code(generated["url"])
-
     if st.button("메인 메뉴로", use_container_width=True):
         go("menu")
-
 
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
@@ -304,20 +276,16 @@ elif st.session_state.page == "driver_login":
                 go("driver_dashboard")
             else:
                 st.error("인증 실패")
-
     with col2:
         if st.button("취소", use_container_width=True):
             go("menu")
 
-
 elif st.session_state.page == "driver_dashboard":
     driver = st.session_state.driver
-
     if not driver:
         go("driver_login")
 
     st.subheader(f'대시보드 - {driver["name"]}님')
-
     order_id = st.text_input(
         "주문번호",
         value=st.query_params.get("order", ""),
@@ -327,23 +295,19 @@ elif st.session_state.page == "driver_dashboard":
 
     with col1:
         search = st.button("조회", use_container_width=True)
-
     with col2:
         logout = st.button("로그아웃", use_container_width=True)
 
     if logout:
         st.session_state.driver = None
         go("menu")
-
     if search:
         order = ORDERS.get(order_id.strip().upper())
 
         if not order:
             st.warning("주문이 없습니다.")
-
         elif expired(order):
             show_expired()
-
         else:
             st.write("### 주문 정보")
             st.write("**수령인:**", order["buyer"])
@@ -356,13 +320,11 @@ elif st.session_state.page == "driver_dashboard":
                 "https://www.google.com/maps/search/"
                 f"?api=1&query={quote(order['location'])}"
             )
-
             st.link_button(
                 "🗺 지도에서 보기",
                 map_url,
                 use_container_width=True,
             )
-
 
 elif st.session_state.page == "buyer_login":
     st.subheader("구매자 조회")
@@ -371,14 +333,11 @@ elif st.session_state.page == "buyer_login":
         "주문번호",
         value=st.query_params.get("order", ""),
     )
-
     password = st.text_input("비밀번호", type="password")
-
     col1, col2 = st.columns(2)
 
     with col1:
         search = st.button("조회", use_container_width=True)
-
     with col2:
         if st.button("취소", use_container_width=True):
             go("menu")
@@ -389,21 +348,18 @@ elif st.session_state.page == "buyer_login":
 
         if not order or order["pw"] != password:
             st.error("인증 실패")
-
         elif expired(order):
             show_expired()
-
         else:
             masked_address = (
                 " ".join(order["address"].split()[:3])
-                + " ***"
-            )
+                + " ***")
 
             st.success("조회 완료")
             st.write("### 주문 정보")
-            st.write("**주문번호:**", order_id)
-            st.write("**수령인:**", order["buyer"])
-            st.write("**주소:**", masked_address)
+            st.write("**주문번호:**",order_id)
+            st.write("**수령인:**",order["buyer"])
+            st.write("**주소:**",masked_address)
             show_extra(order)
             st.write("**상태:**", order["status"])
-            st.caption("※ 상세주소는 보안상 가려집니다.")
+            st.caption("! 상세주소는 보안상 가려집니다. !")
