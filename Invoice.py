@@ -42,7 +42,8 @@ EXPIRE_MINUTES = {
     "6시간": 360,
     "12시간": 720,
     "24시간": 1440,
-    "48시간": 2880,}
+    "48시간": 2880,
+}
 
 def go(page):
     st.session_state.page = page
@@ -132,12 +133,8 @@ elif st.session_state.page == "seller":
         order_id = st.text_input("주문번호", placeholder="ORD003")
         buyer = st.text_input("구매자 이름", placeholder="홍길동")
         address = st.text_input(
-            "상세주소",
+            "배송 주소",
             placeholder="00시 00구 000로 123",
-        )
-        location = st.text_input(
-            "배송 위치",
-            placeholder="00시 00구 000로",
         )
         product = st.text_input("구매 물품", placeholder="무선 이어폰")
         quantity = st.number_input("수량", min_value=1, value=1)
@@ -157,11 +154,12 @@ elif st.session_state.page == "seller":
             "주문 등록 및 QR코드 생성",
             use_container_width=True,
         )
+
     if submitted:
         order_id = order_id.strip().upper()
         buyer = buyer.strip()
         address = address.strip()
-        location = location.strip()
+        location = address
         product = product.strip()
         password = password.strip()
         app_url = app_url.strip().rstrip("/")
@@ -170,7 +168,6 @@ elif st.session_state.page == "seller":
             order_id,
             buyer,
             address,
-            location,
             product,
             password,
             app_url,
@@ -249,8 +246,10 @@ elif st.session_state.page == "seller":
 
             with st.expander("QR코드 접속 주소"):
                 st.code(generated["url"])
+
     if st.button("메인 메뉴로", use_container_width=True):
         go("menu")
+
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
 
@@ -292,6 +291,7 @@ elif st.session_state.page == "driver_dashboard":
     if logout:
         st.session_state.driver = None
         go("menu")
+
     if search:
         order = ORDERS.get(order_id.strip().upper())
 
@@ -344,13 +344,14 @@ elif st.session_state.page == "buyer_login":
         else:
             masked_address = (
                 " ".join(order["address"].split()[:3])
-                + " ***")
+                + " ***"
+            )
 
             st.success("조회 완료")
             st.write("### 주문 정보")
-            st.write("**주문번호:**",order_id)
-            st.write("**수령인:**",order["buyer"])
-            st.write("**주소:**",masked_address)
+            st.write("**주문번호:**", order_id)
+            st.write("**수령인:**", order["buyer"])
+            st.write("**주소:**", masked_address)
             show_extra(order)
             st.write("**상태:**", order["status"])
             st.caption("! 상세주소는 보안상 가려집니다. !")
