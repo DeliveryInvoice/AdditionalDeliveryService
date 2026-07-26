@@ -149,17 +149,14 @@ elif st.session_state.page == "seller":
             list(EXPIRE_MINUTES),
             index=5,
         )
-
         app_url = st.text_input(
             "QR생성용 링크(입력된 정보를 포함해요)",
             value="https://your-app.streamlit.app",
         )
-
         submitted = st.form_submit_button(
             "주문 등록 및 QR코드 생성",
             use_container_width=True,
         )
-
     if submitted:
         order_id = order_id.strip().upper()
         buyer = buyer.strip()
@@ -181,13 +178,10 @@ elif st.session_state.page == "seller":
 
         if not all(inputs):
             st.error("모든 항목을 입력해주세요.")
-
         elif order_id in ORDERS:
             st.error("이미 등록된 주문번호입니다.")
-
         elif app_url == "https://your-app.streamlit.app":
             st.error("실제 주소를 입력해주세요.")
-
         else:
             token = secrets.token_urlsafe(16)
 
@@ -224,7 +218,6 @@ elif st.session_state.page == "seller":
 
     if generated:
         order = ORDERS.get(generated["order_id"])
-
         if order:
             st.divider()
 
@@ -258,7 +251,6 @@ elif st.session_state.page == "seller":
                 st.code(generated["url"])
     if st.button("메인 메뉴로", use_container_width=True):
         go("menu")
-
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
 
@@ -270,7 +262,6 @@ elif st.session_state.page == "driver_login":
     with col1:
         if st.button("로그인", use_container_width=True):
             driver = DRIVERS.get(driver_id.strip().upper())
-
             if driver and driver["pw"] == password:
                 st.session_state.driver = driver
                 go("driver_dashboard")
@@ -321,7 +312,7 @@ elif st.session_state.page == "driver_dashboard":
                 f"?api=1&query={quote(order['location'])}"
             )
             st.link_button(
-                "🗺 지도에서 보기",
+                " 지도에서 보기",
                 map_url,
                 use_container_width=True,
             )
