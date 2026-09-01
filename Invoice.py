@@ -148,7 +148,7 @@ elif st.session_state.page == "seller":
         )
         app_url = st.text_input(
             "QR생성용 링크(입력된 정보를 포함해요)",
-            value="https://your-app.streamlit.app",
+            value="https://additionalservice.streamlit.app",
         )
         submitted = st.form_submit_button(
             "주문 등록 및 QR코드 생성",
@@ -177,7 +177,7 @@ elif st.session_state.page == "seller":
             st.error("모든 항목을 입력해주세요.")
         elif order_id in ORDERS:
             st.error("이미 등록된 주문번호입니다.")
-        elif app_url == "https://your-app.streamlit.app":
+        elif app_url == "https://additionalservice.streamlit.app":
             st.error("실제 주소를 입력해주세요.")
         else:
             token = secrets.token_urlsafe(16)
