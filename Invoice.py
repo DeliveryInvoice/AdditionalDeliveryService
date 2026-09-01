@@ -131,7 +131,7 @@ if st.session_state.page == "menu":
             go("seller")
 
     st.divider()
-    if st.button("🔎 주문번호 찾기", use_container_width=True):
+    if st.button("주문번호 찾기", use_container_width=True):
         go("find_order")
 
 elif st.session_state.page == "find_order":
