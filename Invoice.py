@@ -19,6 +19,7 @@ def load_orders():
         "ORD001": {
             "pw": "9999",
             "buyer": "홍길동",
+            "buyer_email": "hong@example.com",
             "address": "서울시 강남구 xx로 123",
             "location": "서울시 강남구 xx로",
             "status": "배송중",
@@ -26,6 +27,7 @@ def load_orders():
         "ORD002": {
             "pw": "1111",
             "buyer": "김xx",
+            "buyer_email": "kim@example.com",
             "address": "서울시 마포구 궁동 456",
             "location": "서울시 마포구 궁동로",
             "status": "배송완료",
@@ -108,6 +110,8 @@ if "driver" not in st.session_state:
     st.session_state.driver = None
 if "generated" not in st.session_state:
     st.session_state.generated = None
+if "driver_order_id" not in st.session_state:
+    st.session_state.driver_order_id = None
 
 st.title("배송 확인 시스템")
 
@@ -126,12 +130,53 @@ if st.session_state.page == "menu":
         if st.button("판매자", use_container_width=True):
             go("seller")
 
+    st.divider()
+    if st.button("🔎 주문번호 찾기", use_container_width=True):
+        go("find_order")
+
+elif st.session_state.page == "find_order":
+    st.subheader("주문번호 찾기")
+    st.write("주문할 때 입력한 이름과 이메일을 입력해주세요.")
+
+    with st.form("find_order_form"):
+        find_name = st.text_input("구매자 이름")
+        find_email = st.text_input("구매자 이메일")
+        find = st.form_submit_button("주문번호 찾기", use_container_width=True)
+
+    if find:
+        find_name = find_name.strip()
+        find_email = find_email.strip().lower()
+
+        found_orders = []
+        for oid, order in ORDERS.items():
+            same_name = order.get("buyer", "").strip() == find_name
+            same_email = order.get("buyer_email", "").strip().lower() == find_email
+
+            if same_name and same_email:
+                found_orders.append(oid)
+
+        if not find_name or not find_email:
+            st.warning("이름과 이메일을 모두 입력해주세요.")
+        elif found_orders:
+            st.success("주문번호를 찾았습니다.")
+            for oid in found_orders:
+                st.write(f"### {oid}")
+        else:
+            st.error("입력한 정보와 일치하는 주문이 없습니다.")
+
+    if st.button("메인 메뉴로", use_container_width=True):
+        go("menu")
+
 elif st.session_state.page == "seller":
     st.subheader("판매자 주문 등록 및 QR코드 생성")
 
     with st.form("seller_form"):
         order_id = st.text_input("주문번호", placeholder="ORD003")
         buyer = st.text_input("구매자 이름", placeholder="홍길동")
+        buyer_email = st.text_input(
+            "구매자 이메일",
+            placeholder="example@email.com",
+        )
         address = st.text_input(
             "배송 주소",
             placeholder="00시 00구 000로 123",
@@ -158,6 +203,7 @@ elif st.session_state.page == "seller":
     if submitted:
         order_id = order_id.strip().upper()
         buyer = buyer.strip()
+        buyer_email = buyer_email.strip()
         address = address.strip()
         location = address
         product = product.strip()
@@ -167,6 +213,7 @@ elif st.session_state.page == "seller":
         inputs = [
             order_id,
             buyer,
+            buyer_email,
             address,
             product,
             password,
@@ -183,6 +230,7 @@ elif st.session_state.page == "seller":
             ORDERS[order_id] = {
                 "pw": password,
                 "buyer": buyer,
+                "buyer_email": buyer_email,
                 "address": address,
                 "location": location,
                 "product": product,
@@ -288,17 +336,31 @@ elif st.session_state.page == "driver_dashboard":
 
     if logout:
         st.session_state.driver = None
+        st.session_state.driver_order_id = None
         go("menu")
 
     if search:
-        order = ORDERS.get(order_id.strip().upper())
+        searched_id = order_id.strip().upper()
+        order = ORDERS.get(searched_id)
 
         if not order:
+            st.session_state.driver_order_id = None
             st.warning("주문이 없습니다.")
         elif expired(order):
+            st.session_state.driver_order_id = None
             show_expired()
         else:
+            st.session_state.driver_order_id = searched_id
+
+    # 조회한 주문을 세션에 저장해 두어 버튼을 눌러도 화면이 유지됨
+    current_id = st.session_state.driver_order_id
+
+    if current_id:
+        order = ORDERS.get(current_id)
+
+        if order:
             st.write("### 주문 정보")
+            st.write("**주문번호:**", current_id)
             st.write("**수령인:**", order["buyer"])
             st.write("**주소:**", order["address"])
             st.write("**배송 위치:**", order["location"])
@@ -310,10 +372,23 @@ elif st.session_state.page == "driver_dashboard":
                 f"?api=1&query={quote(order['location'])}"
             )
             st.link_button(
-                " 지도에서 보기",
+                "지도에서 보기",
                 map_url,
                 use_container_width=True,
             )
+
+            if order["status"] != "배송완료":
+                if st.button(
+                    "배송 완료",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    order["status"] = "배송완료"
+                    order["completed_at"] = datetime.now(KST).isoformat()
+                    st.success("배송 상태가 '배송완료'로 변경되었습니다.")
+                    st.rerun()
+            else:
+                st.success("배송이 완료된 주문입니다.")
 
 elif st.session_state.page == "buyer_login":
     st.subheader("구매자 조회")
