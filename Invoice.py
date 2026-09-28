@@ -58,9 +58,24 @@ def expired(order):
         return False
     return datetime.now(KST) >= datetime.fromisoformat(expires_at)
 
+def fmt_minutes(total):
+    days, rest = divmod(total, 1440)
+    hours, minutes = divmod(rest, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}일")
+    if hours:
+        parts.append(f"{hours}시간")
+    if minutes:
+        parts.append(f"{minutes}분")
+    return " ".join(parts)
+
 def remaining(order):
     expires_at = order.get("expires_at")
     if not expires_at:
+        # 아직 배송 완료 전: 만료 시간은 배송 완료 후부터 계산됨
+        if order.get("expire_minutes"):
+            return f'배송 완료 후 {fmt_minutes(order["expire_minutes"])} 동안 공개'
         return None
 
     seconds = int(
@@ -187,7 +202,7 @@ elif st.session_state.page == "seller":
         password = st.text_input("구매자 비밀번호", type="password")
 
         expire_option = st.selectbox(
-            "정보 공개시간",
+            "정보 공개시간 (배송 완료 후부터)",
             list(EXPIRE_MINUTES),
             index=5,
         )
@@ -238,10 +253,8 @@ elif st.session_state.page == "seller":
                 "price": int(price),
                 "status": "배송준비",
                 "token": token,
-                "expires_at": (
-                    datetime.now(KST)
-                    + timedelta(minutes=EXPIRE_MINUTES[expire_option])
-                ).isoformat(),
+                # 배송 완료 시점부터 계산하므로 지금은 시간만 저장
+                "expire_minutes": EXPIRE_MINUTES[expire_option],
             }
 
             qr_url = (
@@ -383,8 +396,13 @@ elif st.session_state.page == "driver_dashboard":
                     type="primary",
                     use_container_width=True,
                 ):
+                    now = datetime.now(KST)
                     order["status"] = "배송완료"
-                    order["completed_at"] = datetime.now(KST).isoformat()
+                    order["completed_at"] = now.isoformat()
+                    if order.get("expire_minutes"):
+                        order["expires_at"] = (
+                            now + timedelta(minutes=order["expire_minutes"])
+                        ).isoformat()
                     st.success("배송 상태가 '배송완료'로 변경되었습니다.")
                     st.rerun()
             else:
@@ -427,4 +445,3 @@ elif st.session_state.page == "buyer_login":
             st.write("**주소:**", masked_address)
             show_extra(order)
             st.write("**상태:**", order["status"])
-            st.caption("! 상세주소는 보안상 가려집니다. !")
