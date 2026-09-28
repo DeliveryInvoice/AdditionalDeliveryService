@@ -368,11 +368,11 @@ elif st.session_state.page == "driver_dashboard":
             st.write("**상태:**", order["status"])
 
             map_url = (
-                "https://www.google.com/maps/search/"
-                f"?api=1&query={quote(order['location'])}"
+                "https://map.kakao.com/link/search/"
+                f"{quote(order['address'])}"
             )
             st.link_button(
-                "지도에서 보기",
+                "카카오맵에서 보기",
                 map_url,
                 use_container_width=True,
             )
