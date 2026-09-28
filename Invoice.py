@@ -3,8 +3,13 @@ import qrcode
 import secrets
 
 from io import BytesIO
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
+
+try:
+    from streamlit_qrcode_scanner import qrcode_scanner
+except ImportError:
+    qrcode_scanner = None
 
 st.set_page_config(page_title="배송 확인 시스템")
 
@@ -104,6 +109,28 @@ def make_qr(url):
     qr.save(buffer, format="PNG")
     return buffer.getvalue()
 
+def check_qr(scanned, my_id, order):
+    """스캔한 QR이 내 주문의 QR인지 판별: mine / other / invalid / notoken"""
+    try:
+        qs = parse_qs(urlparse(scanned.strip()).query)
+        scan_id = qs.get("order", [""])[0].strip().upper()
+        scan_token = qs.get("token", [""])[0]
+    except Exception:
+        return "invalid"
+
+    if not scan_id or not scan_token:
+        return "invalid"
+
+    real_token = order.get("token")
+    if not real_token:
+        return "notoken"
+
+    if scan_id == my_id and secrets.compare_digest(
+        scan_token.encode(), real_token.encode()
+    ):
+        return "mine"
+    return "other"
+
 def show_extra(order):
     if "product" in order:
         st.write("**구매 물품:**", order["product"])
@@ -127,6 +154,10 @@ if "generated" not in st.session_state:
     st.session_state.generated = None
 if "driver_order_id" not in st.session_state:
     st.session_state.driver_order_id = None
+if "buyer_order_id" not in st.session_state:
+    st.session_state.buyer_order_id = None
+if "scan_on" not in st.session_state:
+    st.session_state.scan_on = False
 
 st.title("배송 확인 시스템")
 
@@ -422,14 +453,29 @@ elif st.session_state.page == "buyer_login":
         search = st.button("조회", use_container_width=True)
     with col2:
         if st.button("취소", use_container_width=True):
+            st.session_state.buyer_order_id = None
+            st.session_state.scan_on = False
             go("menu")
 
     if search:
-        order_id = order_id.strip().upper()
-        order = ORDERS.get(order_id)
+        searched_id = order_id.strip().upper()
+        order = ORDERS.get(searched_id)
+        st.session_state.scan_on = False
 
         if not order or order["pw"] != password:
+            st.session_state.buyer_order_id = None
             st.error("인증 실패")
+        else:
+            st.session_state.buyer_order_id = searched_id
+
+    # 로그인한 주문을 세션에 저장해 두어 스캔 중에도 화면이 유지됨
+    current_id = st.session_state.buyer_order_id
+
+    if current_id:
+        order = ORDERS.get(current_id)
+
+        if not order:
+            st.session_state.buyer_order_id = None
         elif expired(order):
             show_expired()
         else:
@@ -440,8 +486,41 @@ elif st.session_state.page == "buyer_login":
 
             st.success("조회 완료")
             st.write("### 주문 정보")
-            st.write("**주문번호:**", order_id)
+            st.write("**주문번호:**", current_id)
             st.write("**수령인:**", order["buyer"])
             st.write("**주소:**", masked_address)
             show_extra(order)
             st.write("**상태:**", order["status"])
+            st.caption("! 상세주소는 보안상 가려집니다. !")
+
+            st.divider()
+            st.write("### 내 주문 QR 확인")
+            st.caption("택배의 QR코드가 내 주문의 것인지 확인합니다.")
+
+            if qrcode_scanner is None:
+                st.warning(
+                    "QR 스캔 기능을 사용할 수 없습니다. "
+                    "requirements.txt에 streamlit-qrcode-scanner를 추가해주세요."
+                )
+            elif not st.session_state.scan_on:
+                if st.button("QR 스캔 시작", use_container_width=True):
+                    st.session_state.scan_on = True
+                    st.rerun()
+            else:
+                st.info("카메라에 QR코드를 가져다 대주세요.")
+                scanned = qrcode_scanner(key="buyer_qr_scanner")
+
+                if scanned:
+                    result = check_qr(scanned, current_id, order)
+                    if result == "mine":
+                        st.success("✅ 내 주문의 QR코드가 맞습니다.")
+                    elif result == "other":
+                        st.error("❌ 내 주문의 QR코드가 아닙니다.")
+                    elif result == "notoken":
+                        st.warning("이 주문은 QR 검증 정보가 없어 확인할 수 없습니다.")
+                    else:
+                        st.warning("이 시스템에서 만든 QR코드가 아닙니다.")
+
+                if st.button("스캔 닫기", use_container_width=True):
+                    st.session_state.scan_on = False
+                    st.rerun()
