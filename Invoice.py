@@ -4,10 +4,14 @@ from io import BytesIO
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
+import threading
+
+import av
 import cv2
 import numpy as np
 import qrcode
 import streamlit as st
+from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
 
 st.set_page_config(page_title="배송 확인 시스템")
 
@@ -165,6 +169,27 @@ def verify_parcel(text, my_oid):
     if order.get("token") and data.get("인증코드") != order["token"]:
         return False
     return True
+
+
+class QRProcessor(VideoProcessorBase):
+    """후면 카메라 영상에서 QR을 실시간으로 읽는 처리기"""
+
+    def __init__(self):
+        self.detector = cv2.QRCodeDetector()
+        self.lock = threading.Lock()
+        self.text = None
+        self.last_check = 0.0
+
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        now = time.time()
+        if now - self.last_check > 0.3:  # 0.3초마다 한 번만 검사
+            self.last_check = now
+            text, _, _ = self.detector.detectAndDecode(img)
+            if text:
+                with self.lock:
+                    self.text = text
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
 def show_extra(order):
@@ -524,41 +549,50 @@ elif st.session_state.page == "buyer_login":
                 st.session_state.cam_key += 1
                 st.rerun()
 
-    # ---------- 2단계: QR 스캔 ----------
+    # ---------- 2단계: QR 스캔 (후면 카메라, 실시간) ----------
     elif step == "scan":
         my_oid = st.session_state.buyer_oid
         st.write(
-            "받으신 택배에 붙은 **주문정보 QR코드(QR②)**를 "
-            "카메라에 비춘 뒤 촬영하세요."
+            "택배에 붙은 **주문정보 QR코드(QR②)**를 "
+            "후면 카메라에 갖다 대기만 하세요. 자동으로 인식합니다."
         )
-
-        photo = st.camera_input(
-            "QR 스캔",
-            key=f"cam_{st.session_state.cam_key}",
-            label_visibility="collapsed",
-        )
-
-        if photo:
-            text = decode_qr(photo)
-
-            if text and verify_parcel(text, my_oid):
-                st.session_state.buyer_step = "result"
-                st.rerun()
-            else:
-                # 틀리면 알림 후 카메라를 초기화해서 다시 찍을 수 있게 함
-                msg = (
-                    "고객님의 택배가 아닙니다."
-                    if text
-                    else "QR코드를 인식하지 못했습니다. 다시 찍어주세요."
-                )
-                st.toast(msg, icon="❌")
-                st.session_state.cam_key += 1
-                time.sleep(2)
-                st.rerun()
 
         if st.button("처음으로", use_container_width=True):
             reset_buyer()
             st.rerun()
+
+        ctx = webrtc_streamer(
+            key="qr-scan",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=QRProcessor,
+            media_stream_constraints={
+                "video": {"facingMode": {"ideal": "environment"}},  # 후면 카메라
+                "audio": False,
+            },
+            rtc_configuration={
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            },
+            async_processing=True,
+            desired_playing_state=True,  # 화면이 열리면 카메라 자동 시작
+        )
+
+        last_toast = 0.0
+        while ctx.state.playing:
+            proc = ctx.video_processor
+            if proc:
+                with proc.lock:
+                    text = proc.text
+                    proc.text = None
+
+                if text:
+                    if verify_parcel(text, my_oid):
+                        st.session_state.buyer_step = "result"
+                        st.rerun()
+                    elif time.time() - last_toast > 3:
+                        # 틀리면 알림만 잠깐 띄우고 계속 스캔
+                        st.toast("고객님의 택배가 아닙니다.", icon="❌")
+                        last_toast = time.time()
+            time.sleep(0.3)
 
     # ---------- 3단계: 배송정보 ----------
     elif step == "result":
