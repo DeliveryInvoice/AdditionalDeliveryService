@@ -1,4 +1,3 @@
 streamlit
 qrcode[pil]
 pillow
-streamlit-qrcode-scanner
