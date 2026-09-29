@@ -334,12 +334,44 @@ def show_expired():
     st.error("정보 열람 가능 시간이 만료되었습니다.")
     st.warning("개인정보 보호를 위해 주문 상세정보가 비공개 처리되었습니다.")
 
+def smtp_send(msg, sender, app_pw, host, port):
+    other = 587 if port == 465 else 465
+    errors = []
+
+    for p in (port, other):
+        use_ssl = p == 465
+        step = "연결"
+        try:
+            if use_ssl:
+                server = smtplib.SMTP_SSL(host, p, timeout=20)
+            else:
+                server = smtplib.SMTP(host, p, timeout=20)
+
+            with server:
+                step = "EHLO"
+                server.ehlo()
+                if not use_ssl:
+                    step = "STARTTLS"
+                    server.starttls()
+                    server.ehlo()
+                step = "로그인"
+                server.login(sender, app_pw)
+                step = "발송"
+                server.send_message(msg)
+            return True, ""
+        except smtplib.SMTPAuthenticationError:
+            return False, "로그인 실패: 앱 비밀번호와 발신 계정을 확인해주세요."
+        except Exception as e:
+            errors.append(f"포트 {p} [{step} 단계] {type(e).__name__}: {e}")
+
+    return False, " / ".join(errors)
+
 def send_order_email(order_id, order, qr_url, qr_image):
     try:
         cfg = st.secrets["email"]
         sender = cfg["sender"].strip()
         app_pw = cfg["app_password"].replace(" ", "")
-        host = cfg.get("host", "smtp.gmail.com")
+        host = cfg.get("host", "smtp.gmail.com").strip()
         port = int(cfg.get("port", 465))
     except Exception:
         return False, "이메일 설정(secrets)이 없습니다."
@@ -371,23 +403,7 @@ def send_order_email(order_id, order, qr_url, qr_image):
         filename=f"{order_id}_QR_link.png",
     )
 
-    try:
-        if port == 465:
-            server = smtplib.SMTP_SSL(host, port, timeout=20)
-        else:
-            server = smtplib.SMTP(host, port, timeout=20)
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-
-        with server:
-            server.login(sender, app_pw)
-            server.send_message(msg)
-        return True, ""
-    except smtplib.SMTPAuthenticationError:
-        return False, "로그인 실패: 앱 비밀번호와 발신 계정을 확인해주세요."
-    except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
+    return smtp_send(msg, sender, app_pw, host, port)
 
 if "page" not in st.session_state:
     st.session_state.page = "menu"
