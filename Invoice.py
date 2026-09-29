@@ -14,9 +14,10 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="배송 확인 시스템")
 
 DRIVERS = {
-    "D001": {"pw": "1234", "name": "김기사"},
-    "D002": {"pw": "5678", "name": "이기사"},
+    "D001": {"name": "김기사"},
+    "D002": {"name": "이기사"},
 }
+DRIVER_SESSION_HOURS = 8  # 한 번 로그인하면 유지되는 시간
 
 
 @st.cache_resource
@@ -28,6 +29,7 @@ def load_orders():
             "buyer_email": "hong@example.com",
             "address": "서울시 강남구 xx로 123",
             "location": "서울시 강남구 xx로",
+            "driver_id": "D001",
             "status": "배송중",
         },
         "ORD002": {
@@ -36,6 +38,7 @@ def load_orders():
             "buyer_email": "kim@example.com",
             "address": "서울시 마포구 궁동 456",
             "location": "서울시 마포구 궁동로",
+            "driver_id": "D002",
             "status": "배송완료",
         },
     }
@@ -164,6 +167,68 @@ def expired(order):
     return datetime.now(KST) >= datetime.fromisoformat(expires_at)
 
 
+@st.cache_resource
+def load_driver_sessions():
+    return {}
+
+
+DRIVER_SESSIONS = load_driver_sessions()  # 토큰 → {driver_id, expires_at}
+
+
+def create_driver_session(driver_id):
+    """로그인 성공 시 8시간짜리 세션 생성 (새로고침해도 유지되도록 URL에도 저장)"""
+    token = secrets.token_urlsafe(16)
+    DRIVER_SESSIONS[token] = {
+        "driver_id": driver_id,
+        "expires_at": (
+            datetime.now(KST) + timedelta(hours=DRIVER_SESSION_HOURS)
+        ).isoformat(),
+    }
+    st.session_state.driver_token = token
+    st.session_state.driver_id = driver_id
+    st.session_state.driver = DRIVERS[driver_id]
+    st.query_params["dt"] = token
+
+
+def restore_driver_session():
+    """유효한 로그인 세션이 있으면 True"""
+    token = st.session_state.get("driver_token") or st.query_params.get("dt")
+    sess = DRIVER_SESSIONS.get(token) if token else None
+
+    if sess and datetime.now(KST) < datetime.fromisoformat(sess["expires_at"]):
+        st.session_state.driver_token = token
+        st.session_state.driver_id = sess["driver_id"]
+        st.session_state.driver = DRIVERS[sess["driver_id"]]
+        return True
+
+    end_driver_session()
+    return False
+
+
+def end_driver_session():
+    token = st.session_state.get("driver_token") or st.query_params.get("dt")
+    if token:
+        DRIVER_SESSIONS.pop(token, None)
+    st.session_state.driver = None
+    st.session_state.driver_id = None
+    st.session_state.driver_token = None
+    st.session_state.driver_order_id = None
+    st.session_state.driver_step = "order"
+    if "dt" in st.query_params:
+        del st.query_params["dt"]
+
+
+def driver_session_left():
+    sess = DRIVER_SESSIONS.get(st.session_state.get("driver_token"))
+    if not sess:
+        return ""
+    left = int(
+        (datetime.fromisoformat(sess["expires_at"]) - datetime.now(KST)).total_seconds()
+    )
+    hours, rest = divmod(max(left, 0), 3600)
+    return f"{hours}시간 {rest // 60}분"
+
+
 def fmt_minutes(total):
     days, rest = divmod(total, 1440)
     hours, minutes = divmod(rest, 60)
@@ -284,6 +349,14 @@ if "generated" not in st.session_state:
     st.session_state.generated = None
 if "driver_order_id" not in st.session_state:
     st.session_state.driver_order_id = None
+if "driver_id" not in st.session_state:
+    st.session_state.driver_id = None
+if "driver_token" not in st.session_state:
+    st.session_state.driver_token = None
+if "driver_step" not in st.session_state:
+    st.session_state.driver_step = "order"  # order → scan → info
+if "driver_last_scan_ts" not in st.session_state:
+    st.session_state.driver_last_scan_ts = None
 if "buyer_oid" not in st.session_state:
     st.session_state.buyer_oid = None  # 로그인한 주문번호
 if "buyer_step" not in st.session_state:
@@ -311,6 +384,10 @@ if st.session_state.page == "menu":
 
     with col1:
         if st.button("배송기사", use_container_width=True):
+            if restore_driver_session():
+                st.session_state.driver_step = "order"
+                st.session_state.driver_order_id = None
+                go("driver_dashboard")
             go("driver_login")
     with col2:
         if st.button("구매자", use_container_width=True):
@@ -377,6 +454,11 @@ elif st.session_state.page == "seller":
         quantity = st.number_input("수량", min_value=1, value=1)
         price = st.number_input("가격", min_value=0, step=1000)
         password = st.text_input("구매자 비밀번호", type="password")
+        assigned_driver = st.selectbox(
+            "담당 배송기사 (기사번호)",
+            list(DRIVERS),
+            format_func=lambda d: f"{d} ({DRIVERS[d]['name']})",
+        )
 
         expire_option = st.selectbox(
             "정보 공개시간", list(EXPIRE_MINUTES), index=5
@@ -417,6 +499,7 @@ elif st.session_state.page == "seller":
                 "product": product,
                 "quantity": int(quantity),
                 "price": int(price),
+                "driver_id": assigned_driver,
                 "status": "배송준비",
                 "token": token,
                 # 배송 완료 시점부터 계산하므로 지금은 시간만 저장
@@ -447,6 +530,10 @@ elif st.session_state.page == "seller":
             st.write("**구매자:**", order["buyer"])
             st.write("**주소:**", order["address"])
             st.write("**배송 위치:**", order["location"])
+            st.write(
+                "**담당 기사:**",
+                f'{order["driver_id"]} ({DRIVERS[order["driver_id"]]["name"]})',
+            )
             show_extra(order)
             st.write("**상태:**", order["status"])
 
@@ -493,69 +580,134 @@ elif st.session_state.page == "seller":
 # ---------------------------------------------------------------
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
+    st.caption(
+        f"기사번호와 첫 번째 배송 주문번호로 로그인하면 "
+        f"{DRIVER_SESSION_HOURS}시간 동안 다시 로그인하지 않아도 됩니다."
+    )
 
     driver_id = st.text_input("기사번호", placeholder="D001")
-    password = st.text_input("비밀번호", type="password")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("로그인", use_container_width=True):
-            driver = DRIVERS.get(driver_id.strip().upper())
-            if driver and driver["pw"] == password:
-                st.session_state.driver = driver
-                go("driver_dashboard")
-            else:
-                st.error("인증 실패")
-    with col2:
-        if st.button("취소", use_container_width=True):
-            go("menu")
-
-elif st.session_state.page == "driver_dashboard":
-    driver = st.session_state.driver
-    if not driver:
-        go("driver_login")
-
-    st.subheader(f'대시보드 - {driver["name"]}님')
-    order_id = st.text_input(
-        "주문번호",
+    first_order = st.text_input(
+        "첫 번째 주문번호",
         value=st.query_params.get("order", ""),
+        placeholder="ORD003",
     )
 
     col1, col2 = st.columns(2)
 
     with col1:
-        search = st.button("조회", use_container_width=True)
+        if st.button("로그인", type="primary", use_container_width=True):
+            did = driver_id.strip().upper()
+            oid = first_order.strip().upper()
+            order = ORDERS.get(oid)
+
+            if (
+                did not in DRIVERS
+                or not order
+                or order.get("driver_id") != did
+            ):
+                st.error("인증 실패")
+            elif expired(order):
+                show_expired()
+            else:
+                create_driver_session(did)
+                st.session_state.driver_order_id = oid
+                st.session_state.driver_step = "scan"  # 첫 주문은 바로 스캔
+                st.session_state.driver_last_scan_ts = None
+                go("driver_dashboard")
     with col2:
-        logout = st.button("로그아웃", use_container_width=True)
+        if st.button("취소", use_container_width=True):
+            go("menu")
 
-    if logout:
-        st.session_state.driver = None
-        st.session_state.driver_order_id = None
-        go("menu")
+elif st.session_state.page == "driver_dashboard":
+    if not restore_driver_session():
+        go("driver_login")
 
-    if search:
-        searched_id = order_id.strip().upper()
-        order = ORDERS.get(searched_id)
+    driver = st.session_state.driver
+    st.subheader(f'배송기사 - {driver["name"]}님')
+    st.caption(f"로그인 유지 시간: {driver_session_left()} 남음")
 
-        if not order:
+    step = st.session_state.driver_step
+
+    # ---------- 1단계: 주문번호만 입력 ----------
+    if step == "order":
+        order_id = st.text_input(
+            "주문번호",
+            value=st.query_params.get("order", ""),
+            placeholder="ORD003",
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            start = st.button("QR 스캔", type="primary", use_container_width=True)
+        with col2:
+            if st.button("로그아웃", use_container_width=True):
+                end_driver_session()
+                go("menu")
+
+        if st.button("메인 메뉴로", use_container_width=True):
+            go("menu")
+
+        if start:
+            oid = order_id.strip().upper()
+            order = ORDERS.get(oid)
+
+            if not order:
+                st.warning("주문이 없습니다.")
+            elif order.get("driver_id") != st.session_state.driver_id:
+                st.error("본인에게 배정된 주문이 아닙니다.")
+            elif expired(order):
+                show_expired()
+            else:
+                st.session_state.driver_order_id = oid
+                st.session_state.driver_step = "scan"
+                st.session_state.driver_last_scan_ts = None
+                st.rerun()
+
+    # ---------- 2단계: 송장 QR 스캔 ----------
+    elif step == "scan":
+        oid = st.session_state.driver_order_id
+        st.write(f"**주문번호:** {oid}")
+        st.write(
+            "송장에 붙은 **주문정보 QR코드(QR②)**를 "
+            "후면 카메라의 네모 칸 안에 갖다 대세요."
+        )
+
+        if st.button("주문번호 다시 입력", use_container_width=True):
+            st.session_state.driver_step = "order"
+            st.rerun()
+
+        if st.button("메인 메뉴로", use_container_width=True):
+            st.session_state.driver_step = "order"
             st.session_state.driver_order_id = None
-            st.warning("주문이 없습니다.")
-        elif expired(order):
-            st.session_state.driver_order_id = None
+            go("menu")
+
+        scan = qr_scanner(key="driver_scan", default=None)
+
+        if scan and scan.get("ts") != st.session_state.driver_last_scan_ts:
+            st.session_state.driver_last_scan_ts = scan.get("ts")
+
+            if verify_parcel(scan.get("text", ""), oid):
+                st.session_state.driver_step = "info"
+                st.rerun()
+            else:
+                # 틀리면 알림만 잠깐 띄우고 카메라는 그대로 유지
+                st.toast("입력한 주문의 송장이 아닙니다.", icon="❌")
+
+    # ---------- 3단계: 배송정보 + 카카오맵 ----------
+    elif step == "info":
+        oid = st.session_state.driver_order_id
+        order = ORDERS.get(oid)
+
+        if order and order.get("driver_id") != st.session_state.driver_id:
+            st.session_state.driver_step = "order"
+            st.error("본인에게 배정된 주문이 아닙니다.")
+        elif not order or expired(order):
+            st.session_state.driver_step = "order"
             show_expired()
         else:
-            st.session_state.driver_order_id = searched_id
-
-    # 조회한 주문을 세션에 저장해 두어 버튼을 눌러도 화면이 유지됨
-    current_id = st.session_state.driver_order_id
-
-    if current_id:
-        order = ORDERS.get(current_id)
-
-        if order:
-            st.write("### 주문 정보")
-            st.write("**주문번호:**", current_id)
+            st.success("✅ 송장 확인 완료")
+            st.write("### 배송 정보")
+            st.write("**주문번호:**", oid)
             st.write("**수령인:**", order["buyer"])
             st.write("**주소:**", order["address"])
             st.write("**배송 위치:**", order["location"])
@@ -563,7 +715,9 @@ elif st.session_state.page == "driver_dashboard":
             st.write("**상태:**", order["status"])
 
             map_url = "https://map.kakao.com/link/search/" f"{quote(order['address'])}"
-            st.link_button("카카오맵에서 보기", map_url, use_container_width=True)
+            st.link_button(
+                "🗺️ 카카오맵에서 보기", map_url, use_container_width=True
+            )
 
             if order["status"] != "배송완료":
                 if st.button("배송 완료", type="primary", use_container_width=True):
@@ -574,10 +728,18 @@ elif st.session_state.page == "driver_dashboard":
                         order["expires_at"] = (
                             now + timedelta(minutes=order["expire_minutes"])
                         ).isoformat()
-                    st.success("배송 상태가 '배송완료'로 변경되었습니다.")
                     st.rerun()
             else:
                 st.success("배송이 완료된 주문입니다.")
+
+            if st.button("메인 메뉴로", use_container_width=True):
+                st.session_state.driver_step = "order"
+                st.session_state.driver_order_id = None
+                go("menu")
+
+            if st.button("로그아웃", use_container_width=True):
+                end_driver_session()
+                go("menu")
 
 # ---------------------------------------------------------------
 # 구매자: 주문번호+비밀번호 → QR로 찾기 → QR② 스캔 → 배송정보
