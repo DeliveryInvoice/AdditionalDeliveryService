@@ -4,14 +4,12 @@ from io import BytesIO
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
-import threading
+import tempfile
+from pathlib import Path
 
-import av
-import cv2
-import numpy as np
 import qrcode
 import streamlit as st
-from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="배송 확인 시스템")
 
@@ -55,6 +53,103 @@ EXPIRE_MINUTES = {
     "24시간": 1440,
     "48시간": 2880,
 }
+
+
+# ---------------------------------------------------------------
+# 브라우저에서 후면 카메라로 QR을 실시간 인식하는 컴포넌트
+# ---------------------------------------------------------------
+SCANNER_HTML = r"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;padding:0;background:#000;color:#fff;font-family:sans-serif}
+  #wrap{position:relative;width:100%;max-width:460px;aspect-ratio:1/1;margin:0 auto;background:#000;overflow:hidden}
+  video{width:100%;height:100%;object-fit:cover;display:block}
+  .c{position:absolute;width:46px;height:46px;border:0 solid #fff}
+  .tl{top:14px;left:14px;border-top-width:6px;border-left-width:6px}
+  .tr{top:14px;right:14px;border-top-width:6px;border-right-width:6px}
+  .bl{bottom:14px;left:14px;border-bottom-width:6px;border-left-width:6px}
+  .br{bottom:14px;right:14px;border-bottom-width:6px;border-right-width:6px}
+  #line{position:absolute;left:8%;right:8%;height:2px;background:rgba(255,80,80,.85);top:10%;animation:scan 2.2s linear infinite alternate}
+  @keyframes scan{from{top:10%}to{top:88%}}
+  #msg{text-align:center;padding:10px 6px;font-size:14px;color:#ccc}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <video id="v" playsinline muted autoplay></video>
+  <div class="c tl"></div><div class="c tr"></div>
+  <div class="c bl"></div><div class="c br"></div>
+  <div id="line"></div>
+</div>
+<div id="msg">카메라를 시작하는 중...</div>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+  const video = document.getElementById("v");
+  const msg = document.getElementById("msg");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  let last = { text: "", t: 0 };
+
+  function send(type, data) {
+    window.parent.postMessage(
+      Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*");
+  }
+  function resize() {
+    send("streamlit:setFrameHeight", { height: document.body.scrollHeight });
+  }
+
+  function tick() {
+    if (video.readyState < 2 || !video.videoWidth || typeof jsQR === "undefined") return;
+    const scale = Math.min(1, 720 / video.videoWidth);
+    const w = Math.round(video.videoWidth * scale);
+    const h = Math.round(video.videoHeight * scale);
+    canvas.width = w; canvas.height = h;
+    ctx.drawImage(video, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const code = jsQR(img.data, w, h, { inversionAttempts: "attemptBoth" });
+    if (code && code.data) {
+      const now = Date.now();
+      if (code.data !== last.text || now - last.t > 3000) {
+        last = { text: code.data, t: now };
+        send("streamlit:setComponentValue",
+             { value: { text: code.data, ts: now }, dataType: "json" });
+      }
+    }
+  }
+
+  async function start() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" },
+                 width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      msg.textContent = "QR코드를 프레임 안에 맞춰주세요";
+      setInterval(tick, 120);
+    } catch (e) {
+      msg.textContent = "카메라를 시작할 수 없습니다. 카메라 권한을 허용해주세요.";
+    }
+    resize();
+  }
+
+  send("streamlit:componentReady", { apiVersion: 1 });
+  window.addEventListener("resize", resize);
+  resize();
+  start();
+</script>
+</body>
+</html>
+"""
+
+_scanner_dir = Path(tempfile.gettempdir()) / "qr_scanner_component"
+_scanner_dir.mkdir(exist_ok=True)
+(_scanner_dir / "index.html").write_text(SCANNER_HTML, encoding="utf-8")
+qr_scanner = components.declare_component("qr_scanner", path=str(_scanner_dir))
 
 
 def go(page):
@@ -139,16 +234,6 @@ def parse_qr_text(text):
     return data
 
 
-def decode_qr(image_file):
-    """카메라 사진에서 QR 내용을 읽음"""
-    arr = np.frombuffer(image_file.getvalue(), np.uint8)
-    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if frame is None:
-        return ""
-    text, _, _ = cv2.QRCodeDetector().detectAndDecode(frame)
-    return text
-
-
 def verify_parcel(text, my_oid):
     """찍은 QR②가 로그인한 구매자의 주문과 일치하는지 확인"""
     data = parse_qr_text(text)
@@ -169,27 +254,6 @@ def verify_parcel(text, my_oid):
     if order.get("token") and data.get("인증코드") != order["token"]:
         return False
     return True
-
-
-class QRProcessor(VideoProcessorBase):
-    """후면 카메라 영상에서 QR을 실시간으로 읽는 처리기"""
-
-    def __init__(self):
-        self.detector = cv2.QRCodeDetector()
-        self.lock = threading.Lock()
-        self.text = None
-        self.last_check = 0.0
-
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        now = time.time()
-        if now - self.last_check > 0.3:  # 0.3초마다 한 번만 검사
-            self.last_check = now
-            text, _, _ = self.detector.detectAndDecode(img)
-            if text:
-                with self.lock:
-                    self.text = text
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
 def show_extra(order):
@@ -224,6 +288,8 @@ if "buyer_oid" not in st.session_state:
     st.session_state.buyer_oid = None  # 로그인한 주문번호
 if "buyer_step" not in st.session_state:
     st.session_state.buyer_step = "login"  # login → scan → result
+if "last_scan_ts" not in st.session_state:
+    st.session_state.last_scan_ts = None  # 이미 처리한 스캔 구분용
 if "cam_key" not in st.session_state:
     st.session_state.cam_key = 0  # 카메라 초기화용
 
@@ -554,45 +620,24 @@ elif st.session_state.page == "buyer_login":
         my_oid = st.session_state.buyer_oid
         st.write(
             "택배에 붙은 **주문정보 QR코드(QR②)**를 "
-            "후면 카메라에 갖다 대기만 하세요. 자동으로 인식합니다."
+            "후면 카메라의 네모 칸 안에 갖다 대기만 하세요."
         )
 
         if st.button("처음으로", use_container_width=True):
             reset_buyer()
             st.rerun()
 
-        ctx = webrtc_streamer(
-            key="qr-scan",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=QRProcessor,
-            media_stream_constraints={
-                "video": {"facingMode": {"ideal": "environment"}},  # 후면 카메라
-                "audio": False,
-            },
-            rtc_configuration={
-                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-            },
-            async_processing=True,
-            desired_playing_state=True,  # 화면이 열리면 카메라 자동 시작
-        )
+        scan = qr_scanner(key="qr_scan", default=None)
 
-        last_toast = 0.0
-        while ctx.state.playing:
-            proc = ctx.video_processor
-            if proc:
-                with proc.lock:
-                    text = proc.text
-                    proc.text = None
+        if scan and scan.get("ts") != st.session_state.last_scan_ts:
+            st.session_state.last_scan_ts = scan.get("ts")
 
-                if text:
-                    if verify_parcel(text, my_oid):
-                        st.session_state.buyer_step = "result"
-                        st.rerun()
-                    elif time.time() - last_toast > 3:
-                        # 틀리면 알림만 잠깐 띄우고 계속 스캔
-                        st.toast("고객님의 택배가 아닙니다.", icon="❌")
-                        last_toast = time.time()
-            time.sleep(0.3)
+            if verify_parcel(scan.get("text", ""), my_oid):
+                st.session_state.buyer_step = "result"
+                st.rerun()
+            else:
+                # 틀리면 알림만 잠깐 띄우고 카메라는 그대로 유지
+                st.toast("고객님의 택배가 아닙니다.", icon="❌")
 
     # ---------- 3단계: 배송정보 ----------
     elif step == "result":
