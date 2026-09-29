@@ -1,7 +1,7 @@
 import time
 import secrets
 from io import BytesIO
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 from datetime import datetime, timedelta, timezone
 
 import tempfile
@@ -13,9 +13,18 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="배송 확인 시스템")
 
+REGIONS = [
+    "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기",
+    "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+]
+
 DRIVERS = {
-    "D001": {"name": "김기사"},
-    "D002": {"name": "이기사"},
+    "D001": {"name": "김기사", "regions": ["서울", "경기", "인천"]},
+    "D002": {"name": "이기사", "regions": ["대전", "세종", "충북", "충남"]},
+    "D003": {"name": "박기사", "regions": ["대구", "경북"]},
+    "D004": {"name": "최기사", "regions": ["부산", "울산", "경남"]},
+    "D005": {"name": "정기사", "regions": ["광주", "전북", "전남"]},
+    "D006": {"name": "강기사", "regions": ["강원", "제주"]},
 }
 DRIVER_SESSION_HOURS = 8
 
@@ -27,8 +36,9 @@ def load_orders():
             "pw": "9999",
             "buyer": "홍길동",
             "buyer_email": "hong@example.com",
-            "address": "서울시 강남구 xx로 123",
-            "location": "서울시 강남구 xx로",
+            "region": "서울",
+            "address": "서울 강남구 xx로 123",
+            "location": "서울 강남구 xx로",
             "driver_id": "D001",
             "status": "배송중",
         },
@@ -36,9 +46,10 @@ def load_orders():
             "pw": "1111",
             "buyer": "김xx",
             "buyer_email": "kim@example.com",
-            "address": "서울시 마포구 궁동 456",
-            "location": "서울시 마포구 궁동로",
-            "driver_id": "D002",
+            "region": "서울",
+            "address": "서울 마포구 궁동 456",
+            "location": "서울 마포구 궁동로",
+            "driver_id": "D001",
             "status": "배송완료",
         },
     }
@@ -231,6 +242,13 @@ def norm_addr(text):
     return " ".join(text.split())
 
 
+def driver_for_region(region):
+    for did, d in DRIVERS.items():
+        if region in d["regions"]:
+            return did
+    return None
+
+
 def status_of(order):
     status = order.get("status", "")
     started = order.get("started_at")
@@ -286,45 +304,15 @@ def make_qr(data):
     return buffer.getvalue()
 
 
-def build_qr_text(order_id, order):
-    return (
-        f"주문번호: {order_id}\n"
-        f"구매자: {order['buyer']}\n"
-        f"주소: {order['address']}\n"
-        f"물품: {order.get('product', '')}\n"
-        f"수량: {order.get('quantity', '')}\n"
-        f"인증코드: {order.get('token', '')}"
-    )
-
-
-def parse_qr_text(text):
-    data = {}
-    for line in text.splitlines():
-        if ":" in line:
-            k, v = line.split(":", 1)
-            data[k.strip()] = v.strip()
-    return data
-
-
 def verify_parcel(text, my_oid):
-    data = parse_qr_text(text)
     order = ORDERS.get(my_oid)
-    if not order:
+    if not order or not order.get("token"):
         return False
 
-    if data.get("주문번호", "").upper() != my_oid:
-        return False
-    if data.get("구매자") != order["buyer"]:
-        return False
-    if data.get("주소") != order["address"]:
-        return False
-    if "product" in order and data.get("물품") != order["product"]:
-        return False
-    if "quantity" in order and data.get("수량") != str(order["quantity"]):
-        return False
-    if order.get("token") and data.get("인증코드") != order["token"]:
-        return False
-    return True
+    query = parse_qs(urlparse(text.strip()).query)
+    scanned_oid = query.get("order", [""])[0].upper()
+    scanned_token = query.get("token", [""])[0]
+    return scanned_oid == my_oid and scanned_token == order["token"]
 
 
 def show_extra(order):
@@ -453,16 +441,12 @@ elif st.session_state.page == "seller":
         buyer_email = st.text_input(
             "구매자 이메일", placeholder="example@email.com"
         )
-        address = st.text_input("배송 주소", placeholder="00시 00구 000로 123")
+        region = st.selectbox("배송 지역", REGIONS)
+        detail_address = st.text_input("상세주소", placeholder="00구 000로 123")
         product = st.text_input("구매 물품", placeholder="무선 이어폰")
         quantity = st.number_input("수량", min_value=1, value=1)
         price = st.number_input("가격", min_value=0, step=1000)
         password = st.text_input("구매자 비밀번호", type="password")
-        assigned_driver = st.selectbox(
-            "담당 배송기사 (기사번호)",
-            list(DRIVERS),
-            format_func=lambda d: f"{d} ({DRIVERS[d]['name']})",
-        )
 
         expire_option = st.selectbox(
             "정보 공개시간", list(EXPIRE_MINUTES), index=5
@@ -479,7 +463,8 @@ elif st.session_state.page == "seller":
         order_id = order_id.strip().upper()
         buyer = buyer.strip()
         buyer_email = buyer_email.strip()
-        address = address.strip()
+        detail_address = detail_address.strip()
+        address = f"{region} {detail_address}" if detail_address else ""
         location = address
         product = product.strip()
         password = password.strip()
@@ -491,13 +476,17 @@ elif st.session_state.page == "seller":
             st.error("모든 항목을 입력해주세요.")
         elif order_id in ORDERS:
             st.error("이미 등록된 주문번호입니다.")
+        elif not driver_for_region(region):
+            st.error(f"{region} 지역을 담당하는 배송기사가 없습니다.")
         else:
             token = secrets.token_urlsafe(16)
+            assigned_driver = driver_for_region(region)
 
             ORDERS[order_id] = {
                 "pw": password,
                 "buyer": buyer,
                 "buyer_email": buyer_email,
+                "region": region,
                 "address": address,
                 "location": location,
                 "product": product,
@@ -510,17 +499,14 @@ elif st.session_state.page == "seller":
             }
 
             qr_url = f"{app_url}?order={quote(order_id)}&token={quote(token)}"
-            qr_text = build_qr_text(order_id, ORDERS[order_id])
 
             st.session_state.generated = {
                 "order_id": order_id,
                 "url": qr_url,
                 "image": make_qr(qr_url),
-                "text": qr_text,
-                "text_image": make_qr(qr_text),
             }
 
-            st.success("주문과 QR코드 2개가 생성되었습니다.")
+            st.success("주문과 QR코드가 생성되었습니다.")
 
     generated = st.session_state.generated
 
@@ -540,40 +526,21 @@ elif st.session_state.page == "seller":
             show_extra(order)
             st.write("**상태:**", status_of(order))
 
-            col1, col2 = st.columns(2)
+            st.image(
+                generated["image"],
+                caption="주문 QR코드",
+                use_container_width=True,
+            )
+            st.download_button(
+                "QR코드 저장",
+                generated["image"],
+                file_name=f'{generated["order_id"]}_QR.png',
+                mime="image/png",
+                use_container_width=True,
+            )
 
-            with col1:
-                st.image(
-                    generated["image"],
-                    caption="QR① 주문 조회용 (링크)",
-                    use_container_width=True,
-                )
-                st.download_button(
-                    "QR① 저장",
-                    generated["image"],
-                    file_name=f'{generated["order_id"]}_QR_link.png',
-                    mime="image/png",
-                    use_container_width=True,
-                )
-
-            with col2:
-                st.image(
-                    generated["text_image"],
-                    caption="QR② 택배 확인용 (주문정보 글)",
-                    use_container_width=True,
-                )
-                st.download_button(
-                    "QR② 저장",
-                    generated["text_image"],
-                    file_name=f'{generated["order_id"]}_QR_text.png',
-                    mime="image/png",
-                    use_container_width=True,
-                )
-
-            with st.expander("QR① 접속 주소"):
+            with st.expander("QR코드 접속 주소"):
                 st.code(generated["url"])
-            with st.expander("QR② 저장된 글 내용"):
-                st.code(generated["text"])
 
     if st.button("판매자 메뉴로", use_container_width=True):
         go("seller_menu")
@@ -596,20 +563,21 @@ elif st.session_state.page == "seller_menu":
 
 elif st.session_state.page == "seller_manage":
     st.subheader("배송 관리")
-    st.write("구매자의 이름과 배송 주소를 입력해주세요.")
+    st.write("구매자의 이름과 배송 지역, 상세주소를 입력해주세요.")
 
     with st.form("manage_form"):
         m_name = st.text_input("구매자 이름")
-        m_addr = st.text_input("배송 주소")
+        m_region = st.selectbox("배송 지역", REGIONS)
+        m_detail = st.text_input("상세주소")
         m_find = st.form_submit_button("주문 조회", use_container_width=True)
 
     if m_find:
         name = m_name.strip()
-        addr = norm_addr(m_addr)
+        addr = norm_addr(f"{m_region} {m_detail}") if m_detail.strip() else ""
 
         if not name or not addr:
             st.session_state.manage_found = []
-            st.warning("이름과 주소를 모두 입력해주세요.")
+            st.warning("이름과 상세주소를 모두 입력해주세요.")
         else:
             st.session_state.manage_found = [
                 oid
@@ -648,9 +616,7 @@ elif st.session_state.page == "seller_manage":
                 order["started_at"] = datetime.now(KST).isoformat()
                 st.rerun()
         elif order["status"] == "배송 시작":
-            st.info(
-                f"배송이 시작 되었습니다."
-            )
+            st.info("배송이 시작 되었습니다.")
 
     st.divider()
     if st.button("판매자 메뉴로", use_container_width=True):
@@ -745,7 +711,7 @@ elif st.session_state.page == "driver_dashboard":
         oid = st.session_state.driver_order_id
         st.write(f"**주문번호:** {oid}")
         st.write(
-            "송장에 붙은 **주문정보 QR코드(QR②)**를 "
+            "송장에 붙은 **주문 QR코드**를 "
             "후면 카메라의 네모 칸 안에 갖다 대세요."
         )
 
@@ -851,7 +817,7 @@ elif st.session_state.page == "buyer_login":
     elif step == "scan":
         my_oid = st.session_state.buyer_oid
         st.write(
-            "택배에 붙은 **주문정보 QR코드(QR②)**를 "
+            "택배에 붙은 **주문 QR코드**를 "
             "후면 카메라의 네모 칸 안에 갖다 대기만 하세요."
         )
 
