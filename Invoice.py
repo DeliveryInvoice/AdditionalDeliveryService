@@ -583,10 +583,10 @@ elif st.session_state.page == "seller_menu":
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("📦 주문 등록", use_container_width=True):
+        if st.button("주문 등록", use_container_width=True):
             go("seller")
     with col2:
-        if st.button("🚚 배송 관리", use_container_width=True):
+        if st.button("배송 관리", use_container_width=True):
             st.session_state.manage_found = []
             go("seller_manage")
 
@@ -649,8 +649,7 @@ elif st.session_state.page == "seller_manage":
                 st.rerun()
         elif order["status"] == "배송 시작":
             st.info(
-                f"배송 시작 후 {START_HOURS}시간이 지나면 "
-                "기사가 배송완료를 누를 때까지 '배송중'으로 표시됩니다."
+                f"배송이 시작 되었습니다."
             )
 
     st.divider()
@@ -781,7 +780,7 @@ elif st.session_state.page == "driver_dashboard":
             st.session_state.driver_step = "order"
             show_expired()
         else:
-            st.success("✅ 송장 확인 완료")
+            st.success("송장 확인 완료")
             st.write("### 배송 정보")
             st.write("**주문번호:**", oid)
             st.write("**수령인:**", order["buyer"])
@@ -792,7 +791,7 @@ elif st.session_state.page == "driver_dashboard":
 
             map_url = "https://map.kakao.com/link/search/" f"{quote(order['address'])}"
             st.link_button(
-                "🗺️ 카카오맵에서 보기", map_url, use_container_width=True
+                "카카오맵에서 보기", map_url, use_container_width=True
             )
 
             if order["status"] != "배송완료":
@@ -869,7 +868,7 @@ elif st.session_state.page == "buyer_login":
                 st.session_state.buyer_step = "result"
                 st.rerun()
             else:
-                st.toast("고객님의 택배가 아닙니다.", icon="❌")
+                st.toast("고객님의 택배가 아닙니다.")
 
     elif step == "result":
         my_oid = st.session_state.buyer_oid
@@ -879,7 +878,7 @@ elif st.session_state.page == "buyer_login":
             reset_buyer()
             show_expired()
         else:
-            st.success("✅ 고객님의 택배가 맞습니다!")
+            st.success("고객님의 택배가 맞습니다!")
             st.write("### 배송 정보")
             st.write("**주문번호:**", my_oid)
             st.write("**수령인:**", order["buyer"])
