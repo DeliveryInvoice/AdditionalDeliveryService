@@ -17,7 +17,7 @@ DRIVERS = {
     "D001": {"name": "김기사"},
     "D002": {"name": "이기사"},
 }
-DRIVER_SESSION_HOURS = 8  # 한 번 로그인하면 유지되는 시간
+DRIVER_SESSION_HOURS = 8
 
 
 @st.cache_resource
@@ -58,9 +58,6 @@ EXPIRE_MINUTES = {
 }
 
 
-# ---------------------------------------------------------------
-# 브라우저에서 후면 카메라로 QR을 실시간 인식하는 컴포넌트
-# ---------------------------------------------------------------
 SCANNER_HTML = r"""<!DOCTYPE html>
 <html>
 <head>
@@ -245,7 +242,6 @@ def fmt_minutes(total):
 def remaining(order):
     expires_at = order.get("expires_at")
     if not expires_at:
-        # 아직 배송 완료 전: 만료 시간은 배송 완료 후부터 계산됨
         if order.get("expire_minutes"):
             return f'배송 완료 후 {fmt_minutes(order["expire_minutes"])} 동안 공개'
         return None
@@ -267,10 +263,6 @@ def remaining(order):
         return f"{hours}시간 {minutes}분"
     return f"{minutes}분 {seconds}초"
 
-
-# ---------------------------------------------------------------
-# QR 관련 함수
-# ---------------------------------------------------------------
 def make_qr(data):
     qr = qrcode.make(data)
     buffer = BytesIO()
@@ -338,9 +330,6 @@ def show_expired():
     st.warning("개인정보 보호를 위해 주문 상세정보가 비공개 처리되었습니다.")
 
 
-# ---------------------------------------------------------------
-# 세션 초기화
-# ---------------------------------------------------------------
 if "page" not in st.session_state:
     st.session_state.page = "menu"
 if "driver" not in st.session_state:
@@ -374,9 +363,6 @@ def reset_buyer():
 
 st.title("배송 확인 시스템")
 
-# ---------------------------------------------------------------
-# 메뉴
-# ---------------------------------------------------------------
 if st.session_state.page == "menu":
     st.subheader("메뉴")
 
@@ -401,9 +387,6 @@ if st.session_state.page == "menu":
     if st.button("주문번호 찾기", use_container_width=True):
         go("find_order")
 
-# ---------------------------------------------------------------
-# 주문번호 찾기
-# ---------------------------------------------------------------
 elif st.session_state.page == "find_order":
     st.subheader("주문번호 찾기")
     st.write("주문할 때 입력한 이름과 이메일을 입력해주세요.")
@@ -437,9 +420,6 @@ elif st.session_state.page == "find_order":
     if st.button("메인 메뉴로", use_container_width=True):
         go("menu")
 
-# ---------------------------------------------------------------
-# 판매자: 주문 등록 + QR 2개 생성
-# ---------------------------------------------------------------
 elif st.session_state.page == "seller":
     st.subheader("판매자 주문 등록 및 QR코드 생성")
 
@@ -502,7 +482,6 @@ elif st.session_state.page == "seller":
                 "driver_id": assigned_driver,
                 "status": "배송준비",
                 "token": token,
-                # 배송 완료 시점부터 계산하므로 지금은 시간만 저장
                 "expire_minutes": EXPIRE_MINUTES[expire_option],
             }
 
@@ -512,12 +491,12 @@ elif st.session_state.page == "seller":
             st.session_state.generated = {
                 "order_id": order_id,
                 "url": qr_url,
-                "image": make_qr(qr_url),  # QR① 접속 링크
+                "image": make_qr(qr_url),
                 "text": qr_text,
-                "text_image": make_qr(qr_text),  # QR② 주문정보 글
+                "text_image": make_qr(qr_text),
             }
 
-            st.success("주문과 QR코드 2개가 생성되었습니다.")
+            st.success("주문과 QR코드가 생성되었습니다.")
 
     generated = st.session_state.generated
 
@@ -575,15 +554,9 @@ elif st.session_state.page == "seller":
     if st.button("메인 메뉴로", use_container_width=True):
         go("menu")
 
-# ---------------------------------------------------------------
-# 배송기사
-# ---------------------------------------------------------------
+
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
-    st.caption(
-        f"기사번호와 첫 번째 배송 주문번호로 로그인하면 "
-        f"{DRIVER_SESSION_HOURS}시간 동안 다시 로그인하지 않아도 됩니다."
-    )
 
     driver_id = st.text_input("기사번호", placeholder="D001")
     first_order = st.text_input(
@@ -628,7 +601,6 @@ elif st.session_state.page == "driver_dashboard":
 
     step = st.session_state.driver_step
 
-    # ---------- 1단계: 주문번호만 입력 ----------
     if step == "order":
         order_id = st.text_input(
             "주문번호",
@@ -663,7 +635,6 @@ elif st.session_state.page == "driver_dashboard":
                 st.session_state.driver_last_scan_ts = None
                 st.rerun()
 
-    # ---------- 2단계: 송장 QR 스캔 ----------
     elif step == "scan":
         oid = st.session_state.driver_order_id
         st.write(f"**주문번호:** {oid}")
@@ -693,7 +664,7 @@ elif st.session_state.page == "driver_dashboard":
                 # 틀리면 알림만 잠깐 띄우고 카메라는 그대로 유지
                 st.toast("입력한 주문의 송장이 아닙니다.", icon="❌")
 
-    # ---------- 3단계: 배송정보 + 카카오맵 ----------
+
     elif step == "info":
         oid = st.session_state.driver_order_id
         order = ORDERS.get(oid)
@@ -741,9 +712,6 @@ elif st.session_state.page == "driver_dashboard":
                 end_driver_session()
                 go("menu")
 
-# ---------------------------------------------------------------
-# 구매자: 주문번호+비밀번호 → QR로 찾기 → QR② 스캔 → 배송정보
-# ---------------------------------------------------------------
 elif st.session_state.page == "buyer_login":
     st.subheader("구매자 조회")
     step = st.session_state.buyer_step
