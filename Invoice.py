@@ -335,12 +335,12 @@ def show_expired():
     st.warning("개인정보 보호를 위해 주문 상세정보가 비공개 처리되었습니다.")
 
 def send_order_email(order_id, order, qr_url, qr_image):
-    """주문 등록 안내 메일 발송. 성공 시 (True, ""), 실패 시 (False, 사유)"""
     try:
-        sender = st.secrets["email"]["sender"]
-        app_pw = st.secrets["email"]["app_password"]
-        host = st.secrets["email"].get("host", "smtp.gmail.com")
-        port = int(st.secrets["email"].get("port", 465))
+        cfg = st.secrets["email"]
+        sender = cfg["sender"].strip()
+        app_pw = cfg["app_password"].replace(" ", "")
+        host = cfg.get("host", "smtp.gmail.com")
+        port = int(cfg.get("port", 465))
     except Exception:
         return False, "이메일 설정(secrets)이 없습니다."
 
@@ -372,12 +372,22 @@ def send_order_email(order_id, order, qr_url, qr_image):
     )
 
     try:
-        with smtplib.SMTP_SSL(host, port, timeout=15) as server:
+        if port == 465:
+            server = smtplib.SMTP_SSL(host, port, timeout=20)
+        else:
+            server = smtplib.SMTP(host, port, timeout=20)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+
+        with server:
             server.login(sender, app_pw)
             server.send_message(msg)
         return True, ""
+    except smtplib.SMTPAuthenticationError:
+        return False, "로그인 실패: 앱 비밀번호와 발신 계정을 확인해주세요."
     except Exception as e:
-        return False, str(e)
+        return False, f"{type(e).__name__}: {e}"
 
 if "page" not in st.session_state:
     st.session_state.page = "menu"
