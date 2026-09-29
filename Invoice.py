@@ -17,7 +17,7 @@ DRIVERS = {
     "D001": {"name": "김기사"},
     "D002": {"name": "이기사"},
 }
-DRIVER_SESSION_HOURS = 8
+DRIVER_SESSION_HOURS = 8  
 
 
 @st.cache_resource
@@ -56,7 +56,6 @@ EXPIRE_MINUTES = {
     "24시간": 1440,
     "48시간": 2880,
 }
-
 
 SCANNER_HTML = r"""<!DOCTYPE html>
 <html>
@@ -169,7 +168,7 @@ def load_driver_sessions():
     return {}
 
 
-DRIVER_SESSIONS = load_driver_sessions()  # 토큰 → {driver_id, expires_at}
+DRIVER_SESSIONS = load_driver_sessions() 
 
 
 def create_driver_session(driver_id):
@@ -329,7 +328,6 @@ def show_expired():
     st.error("정보 열람 가능 시간이 만료되었습니다.")
     st.warning("개인정보 보호를 위해 주문 상세정보가 비공개 처리되었습니다.")
 
-
 if "page" not in st.session_state:
     st.session_state.page = "menu"
 if "driver" not in st.session_state:
@@ -343,17 +341,17 @@ if "driver_id" not in st.session_state:
 if "driver_token" not in st.session_state:
     st.session_state.driver_token = None
 if "driver_step" not in st.session_state:
-    st.session_state.driver_step = "order"  # order → scan → info
+    st.session_state.driver_step = "order"  
 if "driver_last_scan_ts" not in st.session_state:
     st.session_state.driver_last_scan_ts = None
 if "buyer_oid" not in st.session_state:
-    st.session_state.buyer_oid = None  # 로그인한 주문번호
+    st.session_state.buyer_oid = None 
 if "buyer_step" not in st.session_state:
-    st.session_state.buyer_step = "login"  # login → scan → result
+    st.session_state.buyer_step = "login" 
 if "last_scan_ts" not in st.session_state:
-    st.session_state.last_scan_ts = None  # 이미 처리한 스캔 구분용
+    st.session_state.last_scan_ts = None  
 if "cam_key" not in st.session_state:
-    st.session_state.cam_key = 0  # 카메라 초기화용
+    st.session_state.cam_key = 0  
 
 
 def reset_buyer():
@@ -362,6 +360,7 @@ def reset_buyer():
 
 
 st.title("배송 확인 시스템")
+
 
 if st.session_state.page == "menu":
     st.subheader("메뉴")
@@ -384,17 +383,19 @@ if st.session_state.page == "menu":
             go("seller")
 
     st.divider()
-    if st.button("주문번호 찾기", use_container_width=True):
+    if st.button("주문번호 & 비밀번호 찾기", use_container_width=True):
         go("find_order")
 
 elif st.session_state.page == "find_order":
-    st.subheader("주문번호 찾기")
+    st.subheader("주문번호 & 비밀번호 찾기")
     st.write("주문할 때 입력한 이름과 이메일을 입력해주세요.")
 
     with st.form("find_order_form"):
         find_name = st.text_input("구매자 이름")
         find_email = st.text_input("구매자 이메일")
-        find = st.form_submit_button("주문번호 찾기", use_container_width=True)
+        find = st.form_submit_button(
+            "주문번호 & 비밀번호 찾기", use_container_width=True
+        )
 
     if find:
         find_name = find_name.strip()
@@ -411,9 +412,15 @@ elif st.session_state.page == "find_order":
         if not find_name or not find_email:
             st.warning("이름과 이메일을 모두 입력해주세요.")
         elif found_orders:
-            st.success("주문번호를 찾았습니다.")
+            st.success("주문을 찾았습니다.")
             for oid in found_orders:
+                order = ORDERS[oid]
                 st.write(f"### {oid}")
+                st.write("**비밀번호:**", order["pw"])
+                st.write("**배송상태:**", order["status"])
+                if "product" in order:
+                    st.write("**구매 물품:**", order["product"])
+                st.divider()
         else:
             st.error("입력한 정보와 일치하는 주문이 없습니다.")
 
@@ -482,6 +489,7 @@ elif st.session_state.page == "seller":
                 "driver_id": assigned_driver,
                 "status": "배송준비",
                 "token": token,
+
                 "expire_minutes": EXPIRE_MINUTES[expire_option],
             }
 
@@ -491,12 +499,12 @@ elif st.session_state.page == "seller":
             st.session_state.generated = {
                 "order_id": order_id,
                 "url": qr_url,
-                "image": make_qr(qr_url),
+                "image": make_qr(qr_url), 
                 "text": qr_text,
-                "text_image": make_qr(qr_text),
+                "text_image": make_qr(qr_text),  
             }
 
-            st.success("주문과 QR코드가 생성되었습니다.")
+            st.success("주문과 QR코드 2개가 생성되었습니다.")
 
     generated = st.session_state.generated
 
@@ -554,9 +562,12 @@ elif st.session_state.page == "seller":
     if st.button("메인 메뉴로", use_container_width=True):
         go("menu")
 
-
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
+    st.caption(
+        f"기사번호와 첫 번째 배송 주문번호로 로그인하면 "
+        f"{DRIVER_SESSION_HOURS}시간 동안 다시 로그인하지 않아도 됩니다."
+    )
 
     driver_id = st.text_input("기사번호", placeholder="D001")
     first_order = st.text_input(
@@ -600,7 +611,6 @@ elif st.session_state.page == "driver_dashboard":
     st.caption(f"로그인 유지 시간: {driver_session_left()} 남음")
 
     step = st.session_state.driver_step
-
     if step == "order":
         order_id = st.text_input(
             "주문번호",
@@ -661,9 +671,7 @@ elif st.session_state.page == "driver_dashboard":
                 st.session_state.driver_step = "info"
                 st.rerun()
             else:
-                # 틀리면 알림만 잠깐 띄우고 카메라는 그대로 유지
                 st.toast("입력한 주문의 송장이 아닙니다.", icon="❌")
-
 
     elif step == "info":
         oid = st.session_state.driver_order_id
@@ -716,7 +724,6 @@ elif st.session_state.page == "buyer_login":
     st.subheader("구매자 조회")
     step = st.session_state.buyer_step
 
-    # ---------- 1단계: 주문번호 + 비밀번호 ----------
     if step == "login":
         order_id = st.text_input(
             "주문번호",
@@ -745,7 +752,6 @@ elif st.session_state.page == "buyer_login":
                 st.session_state.cam_key += 1
                 st.rerun()
 
-    # ---------- 2단계: QR 스캔 (후면 카메라, 실시간) ----------
     elif step == "scan":
         my_oid = st.session_state.buyer_oid
         st.write(
@@ -766,10 +772,8 @@ elif st.session_state.page == "buyer_login":
                 st.session_state.buyer_step = "result"
                 st.rerun()
             else:
-                # 틀리면 알림만 잠깐 띄우고 카메라는 그대로 유지
                 st.toast("고객님의 택배가 아닙니다.", icon="❌")
 
-    # ---------- 3단계: 배송정보 ----------
     elif step == "result":
         my_oid = st.session_state.buyer_oid
         order = ORDERS.get(my_oid)
