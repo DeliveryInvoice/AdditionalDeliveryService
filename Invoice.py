@@ -14,6 +14,10 @@ import streamlit.components.v1 as components
 import smtplib
 from email.message import EmailMessage
 
+import re
+
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
 st.set_page_config(page_title="배송 확인 시스템")
 
 REGIONS = [
@@ -361,6 +365,8 @@ def smtp_send(msg, sender, app_pw, host, port):
             return True, ""
         except smtplib.SMTPAuthenticationError:
             return False, "로그인 실패: 앱 비밀번호와 발신 계정을 확인해주세요."
+        except smtplib.SMTPRecipientsRefused:
+            return False, "받는 사람 이메일 주소가 올바르지 않습니다."
         except Exception as e:
             errors.append(f"포트 {p} [{step} 단계] {type(e).__name__}: {e}")
 
@@ -547,6 +553,8 @@ elif st.session_state.page == "seller":
 
         if not all(inputs):
             st.error("모든 항목을 입력해주세요.")
+        elif not EMAIL_RE.match(buyer_email):
+            st.error("올바른 이메일 주소를 입력해주세요. (예: example@email.com)")
         elif order_id in ORDERS:
             st.error("이미 등록된 주문번호입니다.")
         elif not driver_for_region(region):
