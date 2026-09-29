@@ -19,12 +19,12 @@ REGIONS = [
 ]
 
 DRIVERS = {
-    "D001": {"name": "김기사", "regions": ["서울", "경기", "인천"]},
-    "D002": {"name": "이기사", "regions": ["대전", "세종", "충북", "충남"]},
-    "D003": {"name": "박기사", "regions": ["대구", "경북"]},
-    "D004": {"name": "최기사", "regions": ["부산", "울산", "경남"]},
-    "D005": {"name": "정기사", "regions": ["광주", "전북", "전남"]},
-    "D006": {"name": "강기사", "regions": ["강원", "제주"]},
+    "D001": {"pw": "1234", "name": "김기사", "regions": ["서울", "경기", "인천"]},
+    "D002": {"pw": "5678", "name": "이기사", "regions": ["대전", "세종", "충북", "충남"]},
+    "D003": {"pw": "1111", "name": "박기사", "regions": ["대구", "경북"]},
+    "D004": {"pw": "2222", "name": "최기사", "regions": ["부산", "울산", "경남"]},
+    "D005": {"pw": "3333", "name": "정기사", "regions": ["광주", "전북", "전남"]},
+    "D006": {"pw": "4444", "name": "강기사", "regions": ["강원", "제주"]},
 }
 DRIVER_SESSION_HOURS = 8
 
@@ -626,37 +626,25 @@ elif st.session_state.page == "seller_manage":
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
     st.caption(
-        f"기사번호와 첫 번째 배송 주문번호로 로그인하면 "
-        f"{DRIVER_SESSION_HOURS}시간 동안 다시 로그인하지 않아도 됩니다."
+        f"한 번 로그인하면 {DRIVER_SESSION_HOURS}시간 동안 "
+        "다시 로그인하지 않아도 됩니다."
     )
 
     driver_id = st.text_input("기사번호", placeholder="D001")
-    first_order = st.text_input(
-        "첫 번째 주문번호",
-        value=st.query_params.get("order", ""),
-        placeholder="ORD003",
-    )
+    driver_pw = st.text_input("비밀번호", type="password")
 
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("로그인", type="primary", use_container_width=True):
             did = driver_id.strip().upper()
-            oid = first_order.strip().upper()
-            order = ORDERS.get(oid)
 
-            if (
-                did not in DRIVERS
-                or not order
-                or order.get("driver_id") != did
-            ):
+            if did not in DRIVERS or DRIVERS[did]["pw"] != driver_pw:
                 st.error("인증 실패")
-            elif expired(order):
-                show_expired()
             else:
                 create_driver_session(did)
-                st.session_state.driver_order_id = oid
-                st.session_state.driver_step = "scan"
+                st.session_state.driver_order_id = None
+                st.session_state.driver_step = "order"
                 st.session_state.driver_last_scan_ts = None
                 go("driver_dashboard")
     with col2:
