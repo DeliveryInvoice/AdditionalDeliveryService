@@ -120,50 +120,25 @@ SCANNER_HTML = r"""<!DOCTYPE html>
     window.parent.postMessage(
       Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*");
   }
-
   function resize() {
     send("streamlit:setFrameHeight", { height: document.body.scrollHeight });
   }
 
   function tick() {
     if (video.readyState < 2 || !video.videoWidth || typeof jsQR === "undefined") return;
-
     const scale = Math.min(1, 720 / video.videoWidth);
     const w = Math.round(video.videoWidth * scale);
     const h = Math.round(video.videoHeight * scale);
-
-    canvas.width = w;
-    canvas.height = h;
-
+    canvas.width = w; canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
-
     const img = ctx.getImageData(0, 0, w, h);
-    const code = jsQR(
-      img.data,
-      w,
-      h,
-      { inversionAttempts: "attemptBoth" }
-    );
-
+    const code = jsQR(img.data, w, h, { inversionAttempts: "attemptBoth" });
     if (code && code.data) {
       const now = Date.now();
-
       if (code.data !== last.text || now - last.t > 3000) {
-        last = {
-          text: code.data,
-          t: now
-        };
-
-        send(
-          "streamlit:setComponentValue",
-          {
-            value: {
-              text: code.data,
-              ts: now
-            },
-            dataType: "json"
-          }
-        );
+        last = { text: code.data, t: now };
+        send("streamlit:setComponentValue",
+             { value: { text: code.data, ts: now }, dataType: "json" });
       }
     }
   }
@@ -171,38 +146,22 @@ SCANNER_HTML = r"""<!DOCTYPE html>
   async function start() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: {
-            ideal: "environment"
-          },
-          width: {
-            ideal: 1280
-          },
-          height: {
-            ideal: 720
-          }
-        },
+        video: { facingMode: { ideal: "environment" },
+                 width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       });
-
       video.srcObject = stream;
       await video.play();
-
       msg.textContent = "QR코드를 프레임 안에 맞춰주세요";
-
       setInterval(tick, 120);
-
     } catch (e) {
       msg.textContent = "카메라를 시작할 수 없습니다. 카메라 권한을 허용해주세요.";
     }
-
     resize();
   }
 
   send("streamlit:componentReady", { apiVersion: 1 });
-
   window.addEventListener("resize", resize);
-
   resize();
   start();
 </script>
@@ -212,16 +171,8 @@ SCANNER_HTML = r"""<!DOCTYPE html>
 
 _scanner_dir = Path(tempfile.gettempdir()) / "qr_scanner_component"
 _scanner_dir.mkdir(exist_ok=True)
-
-(_scanner_dir / "index.html").write_text(
-    SCANNER_HTML,
-    encoding="utf-8",
-)
-
-qr_scanner = components.declare_component(
-    "qr_scanner",
-    path=str(_scanner_dir),
-)
+(_scanner_dir / "index.html").write_text(SCANNER_HTML, encoding="utf-8")
+qr_scanner = components.declare_component("qr_scanner", path=str(_scanner_dir))
 
 
 def go(page):
@@ -231,10 +182,8 @@ def go(page):
 
 def expired(order):
     expires_at = order.get("expires_at")
-
     if not expires_at:
         return False
-
     return datetime.now(KST) >= datetime.fromisoformat(expires_at)
 
 
@@ -248,85 +197,53 @@ DRIVER_SESSIONS = load_driver_sessions()
 
 def create_driver_session(driver_id):
     token = secrets.token_urlsafe(16)
-
     DRIVER_SESSIONS[token] = {
         "driver_id": driver_id,
         "expires_at": (
-            datetime.now(KST)
-            + timedelta(hours=DRIVER_SESSION_HOURS)
+            datetime.now(KST) + timedelta(hours=DRIVER_SESSION_HOURS)
         ).isoformat(),
     }
-
     st.session_state.driver_token = token
     st.session_state.driver_id = driver_id
     st.session_state.driver = DRIVERS[driver_id]
-
     st.query_params["dt"] = token
 
 
 def restore_driver_session():
-    token = (
-        st.session_state.get("driver_token")
-        or st.query_params.get("dt")
-    )
-
+    token = st.session_state.get("driver_token") or st.query_params.get("dt")
     sess = DRIVER_SESSIONS.get(token) if token else None
 
-    if (
-        sess
-        and datetime.now(KST)
-        < datetime.fromisoformat(sess["expires_at"])
-    ):
+    if sess and datetime.now(KST) < datetime.fromisoformat(sess["expires_at"]):
         st.session_state.driver_token = token
         st.session_state.driver_id = sess["driver_id"]
         st.session_state.driver = DRIVERS[sess["driver_id"]]
-
         return True
 
     end_driver_session()
-
     return False
 
 
 def end_driver_session():
-    token = (
-        st.session_state.get("driver_token")
-        or st.query_params.get("dt")
-    )
-
+    token = st.session_state.get("driver_token") or st.query_params.get("dt")
     if token:
         DRIVER_SESSIONS.pop(token, None)
-
     st.session_state.driver = None
     st.session_state.driver_id = None
     st.session_state.driver_token = None
     st.session_state.driver_order_id = None
     st.session_state.driver_step = "order"
-
     if "dt" in st.query_params:
         del st.query_params["dt"]
 
 
 def driver_session_left():
-    sess = DRIVER_SESSIONS.get(
-        st.session_state.get("driver_token")
-    )
-
+    sess = DRIVER_SESSIONS.get(st.session_state.get("driver_token"))
     if not sess:
         return ""
-
     left = int(
-        (
-            datetime.fromisoformat(sess["expires_at"])
-            - datetime.now(KST)
-        ).total_seconds()
+        (datetime.fromisoformat(sess["expires_at"]) - datetime.now(KST)).total_seconds()
     )
-
-    hours, rest = divmod(
-        max(left, 0),
-        3600,
-    )
-
+    hours, rest = divmod(max(left, 0), 3600)
     return f"{hours}시간 {rest // 60}분"
 
 
@@ -334,371 +251,152 @@ START_HOURS = 3
 
 
 def norm_addr(text):
-    return " ".join(
-        text.split()
-    )
+    return " ".join(text.split())
 
 
 def driver_for_region(region):
     for did, d in DRIVERS.items():
         if region in d["regions"]:
             return did
-
     return None
 
 
 def status_of(order):
-    status = order.get(
-        "status",
-        "",
-    )
-
-    started = order.get(
-        "started_at"
-    )
-
+    status = order.get("status", "")
+    started = order.get("started_at")
     if status == "배송 시작" and started:
-        elapsed = (
-            datetime.now(KST)
-            - datetime.fromisoformat(started)
-        )
-
+        elapsed = datetime.now(KST) - datetime.fromisoformat(started)
         if elapsed >= timedelta(hours=START_HOURS):
             return "배송중"
-
     return status
 
 
 def fmt_minutes(total):
-    days, rest = divmod(
-        total,
-        1440,
-    )
-
-    hours, minutes = divmod(
-        rest,
-        60,
-    )
-
+    days, rest = divmod(total, 1440)
+    hours, minutes = divmod(rest, 60)
     parts = []
-
     if days:
-        parts.append(
-            f"{days}일"
-        )
-
+        parts.append(f"{days}일")
     if hours:
-        parts.append(
-            f"{hours}시간"
-        )
-
+        parts.append(f"{hours}시간")
     if minutes:
-        parts.append(
-            f"{minutes}분"
-        )
-
+        parts.append(f"{minutes}분")
     return " ".join(parts)
 
 
 def remaining(order):
-    expires_at = order.get(
-        "expires_at"
-    )
-
+    expires_at = order.get("expires_at")
     if not expires_at:
         if order.get("expire_minutes"):
-            return (
-                f'배송 완료 후 '
-                f'{fmt_minutes(order["expire_minutes"])} '
-                f'동안 공개'
-            )
-
+            return f'배송 완료 후 {fmt_minutes(order["expire_minutes"])} 동안 공개'
         return None
 
     seconds = int(
-        (
-            datetime.fromisoformat(expires_at)
-            - datetime.now(KST)
-        ).total_seconds()
+        (datetime.fromisoformat(expires_at) - datetime.now(KST)).total_seconds()
     )
 
     if seconds <= 0:
         return "만료되었습니다."
 
-    days, seconds = divmod(
-        seconds,
-        86400,
-    )
-
-    hours, seconds = divmod(
-        seconds,
-        3600,
-    )
-
-    minutes, seconds = divmod(
-        seconds,
-        60,
-    )
+    days, seconds = divmod(seconds, 86400)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
 
     if days:
-        return (
-            f"{days}일 "
-            f"{hours}시간 "
-            f"{minutes}분"
-        )
-
+        return f"{days}일 {hours}시간 {minutes}분"
     if hours:
-        return (
-            f"{hours}시간 "
-            f"{minutes}분"
-        )
-
-    return (
-        f"{minutes}분 "
-        f"{seconds}초"
-    )
+        return f"{hours}시간 {minutes}분"
+    return f"{minutes}분 {seconds}초"
 
 
 def make_qr(data):
     qr = qrcode.make(data)
-
     buffer = BytesIO()
-
-    qr.save(
-        buffer,
-        format="PNG",
-    )
-
+    qr.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
 def verify_parcel(text, my_oid):
     order = ORDERS.get(my_oid)
-
-    if (
-        not order
-        or not order.get("token")
-    ):
+    if not order or not order.get("token"):
         return False
 
-    query = parse_qs(
-        urlparse(
-            text.strip()
-        ).query
-    )
-
-    scanned_oid = query.get(
-        "order",
-        [""],
-    )[0].upper()
-
-    scanned_token = query.get(
-        "token",
-        [""],
-    )[0]
-
-    return (
-        scanned_oid == my_oid
-        and scanned_token == order["token"]
-    )
+    query = parse_qs(urlparse(text.strip()).query)
+    scanned_oid = query.get("order", [""])[0].upper()
+    scanned_token = query.get("token", [""])[0]
+    return scanned_oid == my_oid and scanned_token == order["token"]
 
 
 def show_extra(order):
     if "product" in order:
-        st.write(
-            "**구매 물품:**",
-            order["product"],
-        )
-
+        st.write("**구매 물품:**", order["product"])
     if "quantity" in order:
-        st.write(
-            "**수량:**",
-            f'{order["quantity"]}개',
-        )
-
+        st.write("**수량:**", f'{order["quantity"]}개')
     if "price" in order:
-        st.write(
-            "**가격:**",
-            f'{order["price"]:,}원',
-        )
-
+        st.write("**가격:**", f'{order["price"]:,}원')
     time_left = remaining(order)
-
     if time_left:
-        st.write(
-            "**남은 정보 공개시간:**",
-            time_left,
-        )
+        st.write("**남은 정보 공개시간:**", time_left)
 
 
 def show_expired():
-    st.error(
-        "정보 열람 가능 시간이 만료되었습니다."
-    )
-
-    st.warning(
-        "개인정보 보호를 위해 "
-        "주문 상세정보가 비공개 처리되었습니다."
-    )
+    st.error("정보 열람 가능 시간이 만료되었습니다.")
+    st.warning("개인정보 보호를 위해 주문 상세정보가 비공개 처리되었습니다.")
 
 
-def smtp_send(
-    msg,
-    sender,
-    app_pw,
-    host,
-    port,
-):
-    other = (
-        587
-        if port == 465
-        else 465
-    )
-
+def smtp_send(msg, sender, app_pw, host, port):
+    other = 587 if port == 465 else 465
     errors = []
 
-    for p in (
-        port,
-        other,
-    ):
+    for p in (port, other):
         use_ssl = p == 465
-
         step = "연결"
-
         try:
             if use_ssl:
-                server = smtplib.SMTP_SSL(
-                    host,
-                    p,
-                    timeout=20,
-                )
-
+                server = smtplib.SMTP_SSL(host, p, timeout=20)
             else:
-                server = smtplib.SMTP(
-                    host,
-                    p,
-                    timeout=20,
-                )
+                server = smtplib.SMTP(host, p, timeout=20)
 
             with server:
                 step = "EHLO"
-
                 server.ehlo()
-
                 if not use_ssl:
                     step = "STARTTLS"
-
                     server.starttls()
-
                     server.ehlo()
-
                 step = "로그인"
-
-                server.login(
-                    sender,
-                    app_pw,
-                )
-
+                server.login(sender, app_pw)
                 step = "발송"
-
-                server.send_message(
-                    msg
-                )
-
+                server.send_message(msg)
             return True, ""
-
         except smtplib.SMTPAuthenticationError:
-            return (
-                False,
-                "로그인 실패: "
-                "앱 비밀번호와 발신 계정을 "
-                "확인해주세요.",
-            )
-
+            return False, "로그인 실패: 앱 비밀번호와 발신 계정을 확인해주세요."
         except smtplib.SMTPRecipientsRefused:
-            return (
-                False,
-                "받는 사람 이메일 주소가 "
-                "올바르지 않습니다.",
-            )
-
+            return False, "받는 사람 이메일 주소가 올바르지 않습니다."
         except Exception as e:
-            errors.append(
-                f"포트 {p} "
-                f"[{step} 단계] "
-                f"{type(e).__name__}: {e}"
-            )
+            errors.append(f"포트 {p} [{step} 단계] {type(e).__name__}: {e}")
 
-    return (
-        False,
-        " / ".join(errors),
-    )
+    return False, " / ".join(errors)
 
 
-def send_order_email(
-    order_id,
-    order,
-    qr_url,
-    qr_image,
-):
+def send_order_email(order_id, order, qr_url, qr_image):
     try:
         cfg = st.secrets["email"]
-
-        sender = (
-            cfg["sender"]
-            .strip()
-        )
-
-        app_pw = (
-            cfg["app_password"]
-            .replace(
-                " ",
-                "",
-            )
-        )
-
-        host = (
-            cfg.get(
-                "host",
-                "smtp.gmail.com",
-            )
-            .strip()
-        )
-
-        port = int(
-            cfg.get(
-                "port",
-                465,
-            )
-        )
-
+        sender = cfg["sender"].strip()
+        app_pw = cfg["app_password"].replace(" ", "")
+        host = cfg.get("host", "smtp.gmail.com").strip()
+        port = int(cfg.get("port", 465))
     except Exception:
-        return (
-            False,
-            "이메일 설정(secrets)이 없습니다.",
-        )
+        return False, "이메일 설정(secrets)이 없습니다."
 
-    driver_name = DRIVERS[
-        order["driver_id"]
-    ]["name"]
+    driver_name = DRIVERS[order["driver_id"]]["name"]
 
     msg = EmailMessage()
-
-    msg["Subject"] = (
-        f"[배송 확인 시스템] "
-        f"주문 {order_id} 등록 안내"
-    )
-
+    msg["Subject"] = f"[배송 확인 시스템] 주문 {order_id} 등록 안내"
     msg["From"] = sender
-
-    msg["To"] = order[
-        "buyer_email"
-    ]
-
+    msg["To"] = order["buyer_email"]
     msg.set_content(
-        f"{order['buyer']}님, "
-        f"주문이 정상적으로 등록되었습니다.\n\n"
-
+        f"{order['buyer']}님, 주문이 정상적으로 등록되었습니다.\n\n"
         f"■ 주문번호: {order_id}\n"
         f"■ 구매 물품: {order['product']}\n"
         f"■ 수량: {order['quantity']}개\n"
@@ -706,17 +404,11 @@ def send_order_email(
         f"■ 배송 주소: {order['address']}\n"
         f"■ 담당 기사: {driver_name}\n"
         f"■ 배송 상태: {order['status']}\n"
-
-        f"■ 정보 공개시간: "
-        f"배송 완료 후 "
-        f"{fmt_minutes(order['expire_minutes'])}\n\n"
-
-        f"아래 링크에서 주문을 조회할 수 있습니다.\n"
-        f"{qr_url}\n\n"
-
-        f"※ 비밀번호는 주문 시 설정하신 값입니다."
+        f"■ 정보 공개시간: 배송 완료 후 {fmt_minutes(order['expire_minutes'])}\n\n"
+        f"아래 링크에서 주문을 조회할 수 있습니다.\n{qr_url}\n\n"
+        f"※ 비밀번호는 주문 시 설정하신 값입니다. 잊으셨다면 "
+        f"'주문번호 & 비밀번호 찾기'를 이용해주세요."
     )
-
     msg.add_attachment(
         qr_image,
         maintype="image",
@@ -724,13 +416,7 @@ def send_order_email(
         filename=f"{order_id}_QR_link.png",
     )
 
-    return smtp_send(
-        msg,
-        sender,
-        app_pw,
-        host,
-        port,
-    )
+    return smtp_send(msg, sender, app_pw, host, port)
 
 
 def print_button(
@@ -741,86 +427,34 @@ def print_button(
     key="print",
 ):
     """라벨 이미지를 브라우저 인쇄 창으로 바로 출력하는 버튼."""
-
-    b64 = base64.b64encode(
-        image_bytes
-    ).decode()
-
-    height_mm = round(
-        width_mm * ratio,
-        1,
-    )
+    b64 = base64.b64encode(image_bytes).decode()
+    height_mm = round(width_mm * ratio, 1)
 
     page_html = (
         "<html><head><style>"
-
-        f"@page{{size:{width_mm}mm "
-        f"{height_mm}mm;margin:0}}"
-
+        f"@page{{size:{width_mm}mm {height_mm}mm;margin:0}}"
         "html,body{margin:0;padding:0}"
-
-        f"img{{width:{width_mm}mm;"
-        f"height:{height_mm}mm;"
-        f"display:block}}"
-
+        f"img{{width:{width_mm}mm;height:{height_mm}mm;display:block}}"
         "</style></head><body>"
-
-        f'<img id="i" '
-        f'src="data:image/png;base64,{b64}">'
-
+        f'<img id="i" src="data:image/png;base64,{b64}">'
         "</body></html>"
     )
 
     components.html(
         f"""
-        <button id="b"
-            style="
-                width:100%;
-                padding:10px;
-                font-size:16px;
-                cursor:pointer;
-                border:1px solid #ccc;
-                border-radius:8px;
-                background:#fff;
-            ">
-            {label}
-        </button>
-
+        <button id="b" style="width:100%;padding:10px;font-size:16px;cursor:pointer;
+            border:1px solid #ccc;border-radius:8px;background:#fff;">{label}</button>
         <script>
           const html = {json.dumps(page_html)};
-
           document.getElementById("b").onclick = () => {{
-
             const f = document.createElement("iframe");
-
-            f.style.cssText =
-                "position:fixed;"
-                + "right:0;"
-                + "bottom:0;"
-                + "width:0;"
-                + "height:0;"
-                + "border:0";
-
+            f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
             document.body.appendChild(f);
-
             const d = f.contentWindow.document;
-
-            d.open();
-            d.write(html);
-            d.close();
-
+            d.open(); d.write(html); d.close();
             const img = d.getElementById("i");
-
-            const go = () => {{
-                f.contentWindow.focus();
-                f.contentWindow.print();
-            }};
-
-            if (img.complete) {{
-                go();
-            }} else {{
-                img.onload = go;
-            }}
+            const go = () => {{ f.contentWindow.focus(); f.contentWindow.print(); }};
+            if (img.complete) go(); else img.onload = go;
           }};
         </script>
         """,
@@ -830,40 +464,28 @@ def print_button(
 
 if "page" not in st.session_state:
     st.session_state.page = "menu"
-
 if "driver" not in st.session_state:
     st.session_state.driver = None
-
 if "generated" not in st.session_state:
     st.session_state.generated = None
-
 if "driver_order_id" not in st.session_state:
     st.session_state.driver_order_id = None
-
 if "manage_found" not in st.session_state:
     st.session_state.manage_found = []
-
 if "driver_id" not in st.session_state:
     st.session_state.driver_id = None
-
 if "driver_token" not in st.session_state:
     st.session_state.driver_token = None
-
 if "driver_step" not in st.session_state:
     st.session_state.driver_step = "order"
-
 if "driver_last_scan_ts" not in st.session_state:
     st.session_state.driver_last_scan_ts = None
-
 if "buyer_oid" not in st.session_state:
     st.session_state.buyer_oid = None
-
 if "buyer_step" not in st.session_state:
     st.session_state.buyer_step = "login"
-
 if "last_scan_ts" not in st.session_state:
     st.session_state.last_scan_ts = None
-
 if "cam_key" not in st.session_state:
     st.session_state.cam_key = 0
 
@@ -873,64 +495,90 @@ def reset_buyer():
     st.session_state.buyer_step = "login"
 
 
-st.title(
-    "배송 확인 시스템"
-)
-
+st.title("배송 확인 시스템")
 
 if st.session_state.page == "menu":
-    st.subheader(
-        "메뉴"
-    )
+    st.subheader("메뉴")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button(
-            "배송기사",
-            use_container_width=True,
-        ):
+        if st.button("배송기사", use_container_width=True):
             if restore_driver_session():
                 st.session_state.driver_step = "order"
                 st.session_state.driver_order_id = None
-
-                go(
-                    "driver_dashboard"
-                )
-
-            go(
-                "driver_login"
-            )
+                go("driver_dashboard")
+            go("driver_login")
 
     with col2:
-        if st.button(
-            "구매자",
-            use_container_width=True,
-        ):
+        if st.button("구매자", use_container_width=True):
             reset_buyer()
-
-            go(
-                "buyer_login"
-            )
+            go("buyer_login")
 
     with col3:
-        if st.button(
-            "판매자",
+        if st.button("판매자", use_container_width=True):
+            go("seller")
+
+    st.divider()
+
+    if st.button("주문번호 & 비밀번호 찾기", use_container_width=True):
+        go("find_order")
+
+
+elif st.session_state.page == "find_order":
+    st.subheader("주문번호 & 비밀번호 찾기")
+    st.write("주문할 때 입력한 이름과 이메일을 입력해주세요.")
+
+    with st.form("find_order_form"):
+        find_name = st.text_input("구매자 이름")
+        find_email = st.text_input("구매자 이메일")
+        find = st.form_submit_button(
+            "주문번호 & 비밀번호 찾기",
             use_container_width=True,
-        ):
-            go(
-                "seller"
+        )
+
+    if find:
+        find_name = find_name.strip()
+        find_email = find_email.strip().lower()
+
+        found_orders = []
+
+        for oid, order in ORDERS.items():
+            same_name = order.get("buyer", "").strip() == find_name
+            same_email = (
+                order.get("buyer_email", "").strip().lower() == find_email
             )
+
+            if same_name and same_email:
+                found_orders.append(oid)
+
+        if not find_name or not find_email:
+            st.warning("이름과 이메일을 모두 입력해주세요.")
+        elif found_orders:
+            st.success("주문을 찾았습니다.")
+
+            for oid in found_orders:
+                order = ORDERS[oid]
+
+                st.write(f"### {oid}")
+                st.write("**비밀번호:**", order["pw"])
+                st.write("**배송상태:**", status_of(order))
+
+                if "product" in order:
+                    st.write("**구매 물품:**", order["product"])
+
+                st.divider()
+        else:
+            st.error("입력한 정보와 일치하는 주문이 없습니다.")
+
+    if st.button("메인 메뉴로", use_container_width=True):
+        go("menu")
 
 
 elif st.session_state.page == "seller":
-    st.subheader(
-        "판매자 주문 등록 및 QR코드 생성"
-    )
+    st.subheader("판매자 주문 등록 및 QR코드 생성")
 
-    with st.form(
-        "seller_form"
-    ):
+    with st.form("seller_form"):
         order_id = st.text_input(
             "주문번호",
             placeholder="ORD003",
@@ -995,35 +643,15 @@ elif st.session_state.page == "seller":
         )
 
     if submitted:
-        order_id = (
-            order_id
-            .strip()
-            .upper()
-        )
-
+        order_id = order_id.strip().upper()
         buyer = buyer.strip()
-
         buyer_email = buyer_email.strip()
-
         detail_address = detail_address.strip()
-
-        address = (
-            f"{region} {detail_address}"
-            if detail_address
-            else ""
-        )
-
+        address = f"{region} {detail_address}" if detail_address else ""
         location = address
-
         product = product.strip()
-
         password = password.strip()
-
-        app_url = (
-            app_url
-            .strip()
-            .rstrip("/")
-        )
+        app_url = app_url.strip().rstrip("/")
 
         inputs = [
             order_id,
@@ -1036,37 +664,25 @@ elif st.session_state.page == "seller":
         ]
 
         if not all(inputs):
-            st.error(
-                "모든 항목을 입력해주세요."
-            )
+            st.error("모든 항목을 입력해주세요.")
 
-        elif not EMAIL_RE.match(
-            buyer_email
-        ):
+        elif not EMAIL_RE.match(buyer_email):
             st.error(
                 "올바른 이메일 주소를 입력해주세요. "
                 "(예: example@email.com)"
             )
 
         elif order_id in ORDERS:
-            st.error(
-                "이미 등록된 주문번호입니다."
-            )
+            st.error("이미 등록된 주문번호입니다.")
 
-        elif not driver_for_region(
-            region
-        ):
+        elif not driver_for_region(region):
             st.error(
-                f"{region} 지역을 담당하는 "
-                f"배송기사가 없습니다."
+                f"{region} 지역을 담당하는 배송기사가 없습니다."
             )
 
         else:
             token = secrets.token_urlsafe(16)
-
-            assigned_driver = driver_for_region(
-                region
-            )
+            assigned_driver = driver_for_region(region)
 
             ORDERS[order_id] = {
                 "pw": password,
@@ -1080,44 +696,31 @@ elif st.session_state.page == "seller":
                 "price": int(price),
                 "driver_id": assigned_driver,
 
+                # 주문 등록 즉시 배송중
                 "status": "배송중",
 
                 "token": token,
-
-                "expire_minutes": (
-                    EXPIRE_MINUTES[
-                        expire_option
-                    ]
-                ),
+                "expire_minutes": EXPIRE_MINUTES[expire_option],
             }
 
             qr_url = (
-                f"{app_url}"
-                f"?order={quote(order_id)}"
+                f"{app_url}?order={quote(order_id)}"
                 f"&token={quote(token)}"
             )
 
-            ORDERS[
-                order_id
-            ]["qr_url"] = qr_url
+            ORDERS[order_id]["qr_url"] = qr_url
 
             st.session_state.generated = {
                 "order_id": order_id,
                 "url": qr_url,
-
-                "image": make_qr(
-                    qr_url
-                ),
-
+                "image": make_qr(qr_url),
                 "label": make_label(
                     ORDERS[order_id],
                     qr_url,
                 ),
             }
 
-            st.success(
-                "주문과 QR코드가 생성되었습니다."
-            )
+            st.success("주문과 QR코드가 생성되었습니다.")
 
             with st.spinner(
                 "구매자 이메일로 안내 메일을 보내는 중..."
@@ -1126,39 +729,28 @@ elif st.session_state.page == "seller":
                     order_id,
                     ORDERS[order_id],
                     qr_url,
-                    st.session_state.generated[
-                        "image"
-                    ],
+                    st.session_state.generated["image"],
                 )
 
             if ok:
                 st.success(
-                    f"{buyer_email} 로 "
-                    f"안내 메일을 보냈습니다."
+                    f"{buyer_email} 로 안내 메일을 보냈습니다."
                 )
-
             else:
                 st.warning(
-                    "주문은 등록되었지만 "
-                    "메일 발송에 실패했습니다: "
+                    "주문은 등록되었지만 메일 발송에 실패했습니다: "
                     f"{err}"
                 )
 
     generated = st.session_state.generated
 
     if generated:
-        order = ORDERS.get(
-            generated[
-                "order_id"
-            ]
-        )
+        order = ORDERS.get(generated["order_id"])
 
         if order:
             st.divider()
 
-            st.write(
-                "### 생성 결과"
-            )
+            st.write("### 생성 결과")
 
             st.write(
                 "**주문번호:**",
@@ -1186,9 +778,7 @@ elif st.session_state.page == "seller":
                 f'({DRIVERS[order["driver_id"]]["name"]})',
             )
 
-            show_extra(
-                order
-            )
+            show_extra(order)
 
             st.write(
                 "**상태:**",
@@ -1204,16 +794,12 @@ elif st.session_state.page == "seller":
             st.download_button(
                 "QR코드 저장",
                 generated["image"],
-                file_name=(
-                    f'{generated["order_id"]}_QR.png'
-                ),
+                file_name=f'{generated["order_id"]}_QR.png',
                 mime="image/png",
                 use_container_width=True,
             )
 
-            if generated.get(
-                "label"
-            ):
+            if generated.get("label"):
                 st.image(
                     generated["label"],
                     caption="송장 라벨",
@@ -1227,38 +813,27 @@ elif st.session_state.page == "seller":
                 st.download_button(
                     "송장 라벨 저장",
                     generated["label"],
-                    file_name=(
-                        f'{generated["order_id"]}_LABEL.png'
-                    ),
+                    file_name=f'{generated["order_id"]}_LABEL.png',
                     mime="image/png",
                     use_container_width=True,
                 )
 
-            with st.expander(
-                "QR코드 접속 주소"
-            ):
-                st.code(
-                    generated["url"]
-                )
+            with st.expander("QR코드 접속 주소"):
+                st.code(generated["url"])
 
     if st.button(
         "판매자 메뉴로",
         use_container_width=True,
     ):
-        go(
-            "menu"
-        )
+        go("menu")
 
 
 elif st.session_state.page == "driver_login":
-    st.subheader(
-        "배송기사 로그인"
-    )
+    st.subheader("배송기사 로그인")
 
     st.caption(
-        f"한 번 로그인하면 "
-        f"{DRIVER_SESSION_HOURS}시간 동안 "
-        f"다시 로그인하지 않아도 됩니다."
+        f"한 번 로그인하면 {DRIVER_SESSION_HOURS}시간 동안 "
+        "다시 로그인하지 않아도 됩니다."
     )
 
     driver_id = st.text_input(
@@ -1279,49 +854,34 @@ elif st.session_state.page == "driver_login":
             type="primary",
             use_container_width=True,
         ):
-            did = (
-                driver_id
-                .strip()
-                .upper()
-            )
+            did = driver_id.strip().upper()
 
             if (
                 did not in DRIVERS
-                or DRIVERS[did]["pw"]
-                != driver_pw
+                or DRIVERS[did]["pw"] != driver_pw
             ):
-                st.error(
-                    "인증 실패"
-                )
+                st.error("인증 실패")
 
             else:
-                create_driver_session(
-                    did
-                )
+                create_driver_session(did)
 
                 st.session_state.driver_order_id = None
                 st.session_state.driver_step = "order"
                 st.session_state.driver_last_scan_ts = None
 
-                go(
-                    "driver_dashboard"
-                )
+                go("driver_dashboard")
 
     with col2:
         if st.button(
             "취소",
             use_container_width=True,
         ):
-            go(
-                "menu"
-            )
+            go("menu")
 
 
 elif st.session_state.page == "driver_dashboard":
     if not restore_driver_session():
-        go(
-            "driver_login"
-        )
+        go("driver_login")
 
     driver = st.session_state.driver
 
@@ -1339,10 +899,7 @@ elif st.session_state.page == "driver_dashboard":
     if step == "order":
         order_id = st.text_input(
             "주문번호",
-            value=st.query_params.get(
-                "order",
-                "",
-            ),
+            value=st.query_params.get("order", ""),
             placeholder="ORD003",
         )
 
@@ -1361,55 +918,33 @@ elif st.session_state.page == "driver_dashboard":
                 use_container_width=True,
             ):
                 end_driver_session()
-
-                go(
-                    "menu"
-                )
+                go("menu")
 
         if st.button(
             "메인 메뉴로",
             use_container_width=True,
         ):
-            go(
-                "menu"
-            )
+            go("menu")
 
         if start:
-            oid = (
-                order_id
-                .strip()
-                .upper()
-            )
-
-            order = ORDERS.get(
-                oid
-            )
+            oid = order_id.strip().upper()
+            order = ORDERS.get(oid)
 
             if not order:
-                st.warning(
-                    "주문이 없습니다."
-                )
+                st.warning("주문이 없습니다.")
 
-            elif (
-                order.get(
-                    "driver_id"
-                )
-                != st.session_state.driver_id
-            ):
+            elif order.get("driver_id") != st.session_state.driver_id:
                 st.error(
                     "본인에게 배정된 주문이 아닙니다."
                 )
 
-            elif expired(
-                order
-            ):
+            elif expired(order):
                 show_expired()
 
             else:
                 st.session_state.driver_order_id = oid
                 st.session_state.driver_step = "scan"
                 st.session_state.driver_last_scan_ts = None
-
                 st.rerun()
 
     elif step == "scan":
@@ -1421,8 +956,7 @@ elif st.session_state.page == "driver_dashboard":
 
         st.write(
             "송장에 붙은 **주문 QR코드**를 "
-            "후면 카메라의 네모 칸 안에 "
-            "갖다 대세요."
+            "후면 카메라의 네모 칸 안에 갖다 대세요."
         )
 
         if st.button(
@@ -1430,7 +964,6 @@ elif st.session_state.page == "driver_dashboard":
             use_container_width=True,
         ):
             st.session_state.driver_step = "order"
-
             st.rerun()
 
         if st.button(
@@ -1439,10 +972,7 @@ elif st.session_state.page == "driver_dashboard":
         ):
             st.session_state.driver_step = "order"
             st.session_state.driver_order_id = None
-
-            go(
-                "menu"
-            )
+            go("menu")
 
         scan = qr_scanner(
             key="driver_scan",
@@ -1454,19 +984,13 @@ elif st.session_state.page == "driver_dashboard":
             and scan.get("ts")
             != st.session_state.driver_last_scan_ts
         ):
-            st.session_state.driver_last_scan_ts = (
-                scan.get("ts")
-            )
+            st.session_state.driver_last_scan_ts = scan.get("ts")
 
             if verify_parcel(
-                scan.get(
-                    "text",
-                    "",
-                ),
+                scan.get("text", ""),
                 oid,
             ):
                 st.session_state.driver_step = "info"
-
                 st.rerun()
 
             else:
@@ -1476,40 +1000,26 @@ elif st.session_state.page == "driver_dashboard":
 
     elif step == "info":
         oid = st.session_state.driver_order_id
-
-        order = ORDERS.get(
-            oid
-        )
+        order = ORDERS.get(oid)
 
         if (
             order
-            and order.get(
-                "driver_id"
-            )
+            and order.get("driver_id")
             != st.session_state.driver_id
         ):
             st.session_state.driver_step = "order"
-
             st.error(
                 "본인에게 배정된 주문이 아닙니다."
             )
 
-        elif (
-            not order
-            or expired(order)
-        ):
+        elif not order or expired(order):
             st.session_state.driver_step = "order"
-
             show_expired()
 
         else:
-            st.success(
-                "송장 확인 완료"
-            )
+            st.success("송장 확인 완료")
 
-            st.write(
-                "### 배송 정보"
-            )
+            st.write("### 배송 정보")
 
             st.write(
                 "**주문번호:**",
@@ -1531,9 +1041,7 @@ elif st.session_state.page == "driver_dashboard":
                 order["location"],
             )
 
-            show_extra(
-                order
-            )
+            show_extra(order)
 
             st.write(
                 "**상태:**",
@@ -1560,20 +1068,13 @@ elif st.session_state.page == "driver_dashboard":
                     now = datetime.now(KST)
 
                     order["status"] = "배송완료"
+                    order["completed_at"] = now.isoformat()
 
-                    order["completed_at"] = (
-                        now.isoformat()
-                    )
-
-                    if order.get(
-                        "expire_minutes"
-                    ):
+                    if order.get("expire_minutes"):
                         order["expires_at"] = (
                             now
                             + timedelta(
-                                minutes=order[
-                                    "expire_minutes"
-                                ]
+                                minutes=order["expire_minutes"]
                             )
                         ).isoformat()
 
@@ -1590,36 +1091,25 @@ elif st.session_state.page == "driver_dashboard":
             ):
                 st.session_state.driver_step = "order"
                 st.session_state.driver_order_id = None
-
-                go(
-                    "menu"
-                )
+                go("menu")
 
             if st.button(
                 "로그아웃",
                 use_container_width=True,
             ):
                 end_driver_session()
-
-                go(
-                    "menu"
-                )
+                go("menu")
 
 
 elif st.session_state.page == "buyer_login":
-    st.subheader(
-        "구매자 조회"
-    )
+    st.subheader("구매자 조회")
 
     step = st.session_state.buyer_step
 
     if step == "login":
         order_id = st.text_input(
             "주문번호",
-            value=st.query_params.get(
-                "order",
-                "",
-            ),
+            value=st.query_params.get("order", ""),
         )
 
         password = st.text_input(
@@ -1641,39 +1131,25 @@ elif st.session_state.page == "buyer_login":
                 "취소",
                 use_container_width=True,
             ):
-                go(
-                    "menu"
-                )
+                go("menu")
 
         if find:
-            oid = (
-                order_id
-                .strip()
-                .upper()
-            )
-
-            order = ORDERS.get(
-                oid
-            )
+            oid = order_id.strip().upper()
+            order = ORDERS.get(oid)
 
             if (
                 not order
                 or order["pw"] != password
             ):
-                st.error(
-                    "인증 실패"
-                )
+                st.error("인증 실패")
 
-            elif expired(
-                order
-            ):
+            elif expired(order):
                 show_expired()
 
             else:
                 st.session_state.buyer_oid = oid
                 st.session_state.buyer_step = "scan"
                 st.session_state.cam_key += 1
-
                 st.rerun()
 
     elif step == "scan":
@@ -1681,8 +1157,7 @@ elif st.session_state.page == "buyer_login":
 
         st.write(
             "택배에 붙은 **주문 QR코드**를 "
-            "후면 카메라의 네모 칸 안에 "
-            "갖다 대기만 하세요."
+            "후면 카메라의 네모 칸 안에 갖다 대기만 하세요."
         )
 
         if st.button(
@@ -1690,7 +1165,6 @@ elif st.session_state.page == "buyer_login":
             use_container_width=True,
         ):
             reset_buyer()
-
             st.rerun()
 
         scan = qr_scanner(
@@ -1703,19 +1177,13 @@ elif st.session_state.page == "buyer_login":
             and scan.get("ts")
             != st.session_state.last_scan_ts
         ):
-            st.session_state.last_scan_ts = (
-                scan.get("ts")
-            )
+            st.session_state.last_scan_ts = scan.get("ts")
 
             if verify_parcel(
-                scan.get(
-                    "text",
-                    "",
-                ),
+                scan.get("text", ""),
                 my_oid,
             ):
                 st.session_state.buyer_step = "result"
-
                 st.rerun()
 
             else:
@@ -1725,17 +1193,10 @@ elif st.session_state.page == "buyer_login":
 
     elif step == "result":
         my_oid = st.session_state.buyer_oid
+        order = ORDERS.get(my_oid)
 
-        order = ORDERS.get(
-            my_oid
-        )
-
-        if (
-            not order
-            or expired(order)
-        ):
+        if not order or expired(order):
             reset_buyer()
-
             show_expired()
 
         else:
@@ -1743,9 +1204,7 @@ elif st.session_state.page == "buyer_login":
                 "고객님의 택배가 맞습니다!"
             )
 
-            st.write(
-                "### 배송 정보"
-            )
+            st.write("### 배송 정보")
 
             st.write(
                 "**주문번호:**",
@@ -1759,8 +1218,7 @@ elif st.session_state.page == "buyer_login":
 
             masked = (
                 " ".join(
-                    order["address"]
-                    .split()[:3]
+                    order["address"].split()[:3]
                 )
                 + " ***"
             )
@@ -1770,9 +1228,7 @@ elif st.session_state.page == "buyer_login":
                 masked,
             )
 
-            show_extra(
-                order
-            )
+            show_extra(order)
 
             st.write(
                 "**상태:**",
@@ -1784,7 +1240,4 @@ elif st.session_state.page == "buyer_login":
             use_container_width=True,
         ):
             reset_buyer()
-
-            go(
-                "menu"
-            )
+            go("menu")
