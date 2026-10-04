@@ -700,85 +700,85 @@ elif st.session_state.page == "seller_menu":
     with col1:
         if st.button("주문 등록", use_container_width=True):
             go("seller")
-    with col2:
-        if st.button("배송 관리", use_container_width=True):
-            st.session_state.manage_found = []
-            go("seller_manage")
+    # with col2:
+    #     if st.button("배송 관리", use_container_width=True):
+    #         st.session_state.manage_found = []
+    #         go("seller_manage")
 
     st.divider()
     if st.button("메인 메뉴로", use_container_width=True):
         go("menu")
 
-elif st.session_state.page == "seller_manage":
-    st.subheader("배송 관리")
-    st.write("구매자의 이름과 배송 지역, 상세주소를 입력해주세요.")
+# elif st.session_state.page == "seller_manage":
+#     st.subheader("배송 관리")
+#     st.write("구매자의 이름과 배송 지역, 상세주소를 입력해주세요.")
 
-    with st.form("manage_form"):
-        m_name = st.text_input("구매자 이름")
-        m_region = st.selectbox("배송 지역", REGIONS)
-        m_detail = st.text_input("상세주소")
-        m_find = st.form_submit_button("주문 조회", use_container_width=True)
+#     with st.form("manage_form"):
+#         m_name = st.text_input("구매자 이름")
+#         m_region = st.selectbox("배송 지역", REGIONS)
+#         m_detail = st.text_input("상세주소")
+#         m_find = st.form_submit_button("주문 조회", use_container_width=True)
 
-    if m_find:
-        name = m_name.strip()
-        addr = norm_addr(f"{m_region} {m_detail}") if m_detail.strip() else ""
+#     if m_find:
+#         name = m_name.strip()
+#         addr = norm_addr(f"{m_region} {m_detail}") if m_detail.strip() else ""
 
-        if not name or not addr:
-            st.session_state.manage_found = []
-            st.warning("이름과 상세주소를 모두 입력해주세요.")
-        else:
-            st.session_state.manage_found = [
-                oid
-                for oid, o in ORDERS.items()
-                if o.get("buyer", "").strip() == name
-                and norm_addr(o.get("address", "")) == addr
-            ]
-            if not st.session_state.manage_found:
-                st.error("입력한 정보와 일치하는 주문이 없습니다.")
+#         if not name or not addr:
+#             st.session_state.manage_found = []
+#             st.warning("이름과 상세주소를 모두 입력해주세요.")
+#         else:
+#             st.session_state.manage_found = [
+#                 oid
+#                 for oid, o in ORDERS.items()
+#                 if o.get("buyer", "").strip() == name
+#                 and norm_addr(o.get("address", "")) == addr
+#             ]
+#             if not st.session_state.manage_found:
+#                 st.error("입력한 정보와 일치하는 주문이 없습니다.")
 
-    for oid in st.session_state.manage_found:
-        order = ORDERS.get(oid)
-        if not order:
-            continue
+#     for oid in st.session_state.manage_found:
+#         order = ORDERS.get(oid)
+#         if not order:
+#             continue
 
-        st.divider()
-        st.write(f"### {oid}")
-        st.write("**구매자:**", order["buyer"])
-        st.write("**주소:**", order["address"])
-        if order.get("driver_id") in DRIVERS:
-            st.write(
-                "**담당 기사:**",
-                f'{order["driver_id"]} ({DRIVERS[order["driver_id"]]["name"]})',
-            )
-        show_extra(order)
-        if order.get("qr_url"):
-            st.download_button(
-                "송장 라벨 다시 받기",
-                make_label(order, order["qr_url"]),
-                file_name=f"{oid}_LABEL.png",
-                mime="image/png",
-                key=f"label_{oid}",
-                use_container_width=True,
-            )
-        st.write("**상태:**", status_of(order))
+#         st.divider()
+#         st.write(f"### {oid}")
+#         st.write("**구매자:**", order["buyer"])
+#         st.write("**주소:**", order["address"])
+#         if order.get("driver_id") in DRIVERS:
+#             st.write(
+#                 "**담당 기사:**",
+#                 f'{order["driver_id"]} ({DRIVERS[order["driver_id"]]["name"]})',
+#             )
+#         show_extra(order)
+#         if order.get("qr_url"):
+#             st.download_button(
+#                 "송장 라벨 다시 받기",
+#                 make_label(order, order["qr_url"]),
+#                 file_name=f"{oid}_LABEL.png",
+#                 mime="image/png",
+#                 key=f"label_{oid}",
+#                 use_container_width=True,
+#             )
+#         st.write("**상태:**", status_of(order))
 
-        if order["status"] == "배송준비":
-            if st.button(
-                "배송시작",
-                key=f"start_{oid}",
-                type="primary",
-                use_container_width=True,
-            ):
-                order["status"] = "배송 시작"
-                order["started_at"] = datetime.now(KST).isoformat()
-                st.rerun()
-        elif order["status"] == "배송 시작":
-            st.info("배송이 시작 되었습니다.")
+#         if order["status"] == "배송준비":
+#             if st.button(
+#                 "배송시작",
+#                 key=f"start_{oid}",
+#                 type="primary",
+#                 use_container_width=True,
+#             ):
+#                 order["status"] = "배송 시작"
+#                 order["started_at"] = datetime.now(KST).isoformat()
+#                 st.rerun()
+#         elif order["status"] == "배송 시작":
+#             st.info("배송이 시작 되었습니다.")
 
-    st.divider()
-    if st.button("판매자 메뉴로", use_container_width=True):
-        st.session_state.manage_found = []
-        go("seller_menu")
+#     st.divider()
+#     if st.button("판매자 메뉴로", use_container_width=True):
+#         st.session_state.manage_found = []
+#         go("seller_menu")
 
 elif st.session_state.page == "driver_login":
     st.subheader("배송기사 로그인")
