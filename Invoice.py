@@ -231,7 +231,7 @@ def end_driver_session():
     st.session_state.driver_id = None
     st.session_state.driver_token = None
     st.session_state.driver_order_id = None
-    st.session_state.driver_step = "order"
+    st.session_state.driver_step = "scan"
     if "dt" in st.query_params:
         del st.query_params["dt"]
 
@@ -325,6 +325,24 @@ def verify_parcel(text, my_oid):
     scanned_oid = query.get("order", [""])[0].upper()
     scanned_token = query.get("token", [""])[0]
     return scanned_oid == my_oid and scanned_token == order["token"]
+
+
+def verify_driver_parcel(text, driver_id):
+    """QR의 주문번호/토큰이 맞고, QR의 기사번호 = 로그인한 기사번호 =
+    주문에 배정된 기사번호일 때만 주문번호를 돌려준다."""
+    query = parse_qs(urlparse(text.strip()).query)
+    oid = query.get("order", [""])[0].upper()
+    token = query.get("token", [""])[0]
+    qr_driver = query.get("driver", [""])[0].upper()
+
+    order = ORDERS.get(oid)
+    if not order or not order.get("token"):
+        return None
+    if not secrets.compare_digest(token.encode(), order["token"].encode()):
+        return None
+    if qr_driver != driver_id or order.get("driver_id") != driver_id:
+        return None
+    return oid
 
 
 def show_extra(order):
@@ -475,7 +493,7 @@ if "driver_id" not in st.session_state:
 if "driver_token" not in st.session_state:
     st.session_state.driver_token = None
 if "driver_step" not in st.session_state:
-    st.session_state.driver_step = "order"
+    st.session_state.driver_step = "scan"
 if "driver_last_scan_ts" not in st.session_state:
     st.session_state.driver_last_scan_ts = None
 if "buyer_oid" not in st.session_state:
@@ -503,8 +521,9 @@ if st.session_state.page == "menu":
     with col1:
         if st.button("배송기사", use_container_width=True):
             if restore_driver_session():
-                st.session_state.driver_step = "order"
+                st.session_state.driver_step = "scan"
                 st.session_state.driver_order_id = None
+                st.session_state.driver_last_scan_ts = None
                 go("driver_dashboard")
             go("driver_login")
 
@@ -649,6 +668,7 @@ elif st.session_state.page == "seller":
             qr_url = (
                 f"{app_url}?order={quote(order_id)}"
                 f"&token={quote(token)}"
+                f"&driver={quote(assigned_driver)}"
             )
 
             ORDERS[order_id]["qr_url"] = qr_url
@@ -809,7 +829,7 @@ elif st.session_state.page == "driver_login":
                 create_driver_session(did)
 
                 st.session_state.driver_order_id = None
-                st.session_state.driver_step = "order"
+                st.session_state.driver_step = "scan"
                 st.session_state.driver_last_scan_ts = None
 
                 go("driver_dashboard")
@@ -838,22 +858,24 @@ elif st.session_state.page == "driver_dashboard":
     )
 
     step = st.session_state.driver_step
+    if step not in ("scan", "info"):
+        step = "scan"
+        st.session_state.driver_step = "scan"
 
-    if step == "order":
-        order_id = st.text_input(
-            "주문번호",
-            value=st.query_params.get("order", ""),
-            placeholder="ORD003",
+    if step == "scan":
+        st.write(
+            "송장에 붙은 **주문 QR코드**를 "
+            "후면 카메라의 네모 칸 안에 갖다 대세요."
         )
 
         col1, col2 = st.columns(2)
 
         with col1:
-            start = st.button(
-                "QR 스캔",
-                type="primary",
+            if st.button(
+                "메인 메뉴로",
                 use_container_width=True,
-            )
+            ):
+                go("menu")
 
         with col2:
             if st.button(
@@ -862,60 +884,6 @@ elif st.session_state.page == "driver_dashboard":
             ):
                 end_driver_session()
                 go("menu")
-
-        if st.button(
-            "메인 메뉴로",
-            use_container_width=True,
-        ):
-            go("menu")
-
-        if start:
-            oid = order_id.strip().upper()
-            order = ORDERS.get(oid)
-
-            if not order:
-                st.warning("주문이 없습니다.")
-
-            elif order.get("driver_id") != st.session_state.driver_id:
-                st.error(
-                    "본인에게 배정된 주문이 아닙니다."
-                )
-
-            elif expired(order):
-                show_expired()
-
-            else:
-                st.session_state.driver_order_id = oid
-                st.session_state.driver_step = "scan"
-                st.session_state.driver_last_scan_ts = None
-                st.rerun()
-
-    elif step == "scan":
-        oid = st.session_state.driver_order_id
-
-        st.write(
-            f"**주문번호:** {oid}"
-        )
-
-        st.write(
-            "송장에 붙은 **주문 QR코드**를 "
-            "후면 카메라의 네모 칸 안에 갖다 대세요."
-        )
-
-        if st.button(
-            "주문번호 다시 입력",
-            use_container_width=True,
-        ):
-            st.session_state.driver_step = "order"
-            st.rerun()
-
-        if st.button(
-            "메인 메뉴로",
-            use_container_width=True,
-        ):
-            st.session_state.driver_step = "order"
-            st.session_state.driver_order_id = None
-            go("menu")
 
         scan = qr_scanner(
             key="driver_scan",
@@ -929,17 +897,23 @@ elif st.session_state.page == "driver_dashboard":
         ):
             st.session_state.driver_last_scan_ts = scan.get("ts")
 
-            if verify_parcel(
+            scanned_oid = verify_driver_parcel(
                 scan.get("text", ""),
-                oid,
-            ):
-                st.session_state.driver_step = "info"
-                st.rerun()
+                st.session_state.driver_id,
+            )
+
+            if not scanned_oid:
+                st.toast(
+                    "본인에게 배정된 주문의 QR코드가 아닙니다."
+                )
+
+            elif expired(ORDERS[scanned_oid]):
+                show_expired()
 
             else:
-                st.toast(
-                    "입력한 주문의 송장이 아닙니다."
-                )
+                st.session_state.driver_order_id = scanned_oid
+                st.session_state.driver_step = "info"
+                st.rerun()
 
     elif step == "info":
         oid = st.session_state.driver_order_id
@@ -950,13 +924,13 @@ elif st.session_state.page == "driver_dashboard":
             and order.get("driver_id")
             != st.session_state.driver_id
         ):
-            st.session_state.driver_step = "order"
+            st.session_state.driver_step = "scan"
             st.error(
                 "본인에게 배정된 주문이 아닙니다."
             )
 
         elif not order or expired(order):
-            st.session_state.driver_step = "order"
+            st.session_state.driver_step = "scan"
             show_expired()
 
         else:
@@ -1029,10 +1003,19 @@ elif st.session_state.page == "driver_dashboard":
                 )
 
             if st.button(
+                "다른 송장 스캔",
+                use_container_width=True,
+            ):
+                st.session_state.driver_step = "scan"
+                st.session_state.driver_order_id = None
+                st.session_state.driver_last_scan_ts = None
+                st.rerun()
+
+            if st.button(
                 "메인 메뉴로",
                 use_container_width=True,
             ):
-                st.session_state.driver_step = "order"
+                st.session_state.driver_step = "scan"
                 st.session_state.driver_order_id = None
                 go("menu")
 
