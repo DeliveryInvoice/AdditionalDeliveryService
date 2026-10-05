@@ -405,9 +405,7 @@ def send_order_email(order_id, order, qr_url, qr_image):
         f"■ 담당 기사: {driver_name}\n"
         f"■ 배송 상태: {order['status']}\n"
         f"■ 정보 공개시간: 배송 완료 후 {fmt_minutes(order['expire_minutes'])}\n\n"
-        f"아래 링크에서 주문을 조회할 수 있습니다.\n{qr_url}\n\n"
-        f"※ 비밀번호는 주문 시 설정하신 값입니다. 잊으셨다면 "
-        f"'주문번호 & 비밀번호 찾기'를 이용해주세요."
+        f"아래 링크에서 주문을 조회할 수 있습니다.\n{qr_url}"
     )
     msg.add_attachment(
         qr_image,
@@ -518,61 +516,6 @@ if st.session_state.page == "menu":
     with col3:
         if st.button("판매자", use_container_width=True):
             go("seller")
-
-    st.divider()
-
-    if st.button("주문번호 & 비밀번호 찾기", use_container_width=True):
-        go("find_order")
-
-
-elif st.session_state.page == "find_order":
-    st.subheader("주문번호 & 비밀번호 찾기")
-    st.write("주문할 때 입력한 이름과 이메일을 입력해주세요.")
-
-    with st.form("find_order_form"):
-        find_name = st.text_input("구매자 이름")
-        find_email = st.text_input("구매자 이메일")
-        find = st.form_submit_button(
-            "주문번호 & 비밀번호 찾기",
-            use_container_width=True,
-        )
-
-    if find:
-        find_name = find_name.strip()
-        find_email = find_email.strip().lower()
-
-        found_orders = []
-
-        for oid, order in ORDERS.items():
-            same_name = order.get("buyer", "").strip() == find_name
-            same_email = (
-                order.get("buyer_email", "").strip().lower() == find_email
-            )
-
-            if same_name and same_email:
-                found_orders.append(oid)
-
-        if not find_name or not find_email:
-            st.warning("이름과 이메일을 모두 입력해주세요.")
-        elif found_orders:
-            st.success("주문을 찾았습니다.")
-
-            for oid in found_orders:
-                order = ORDERS[oid]
-
-                st.write(f"### {oid}")
-                st.write("**비밀번호:**", order["pw"])
-                st.write("**배송상태:**", status_of(order))
-
-                if "product" in order:
-                    st.write("**구매 물품:**", order["product"])
-
-                st.divider()
-        else:
-            st.error("입력한 정보와 일치하는 주문이 없습니다.")
-
-    if st.button("메인 메뉴로", use_container_width=True):
-        go("menu")
 
 
 elif st.session_state.page == "seller":
