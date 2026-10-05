@@ -423,6 +423,7 @@ def send_order_email(order_id, order, qr_url, qr_image):
         f"■ 담당 기사: {driver_name}\n"
         f"■ 배송 상태: {order['status']}\n"
         f"■ 정보 공개시간: 배송 완료 후 {fmt_minutes(order['expire_minutes'])}\n\n"
+        f"꼭 한번은 접속해주시길 바랍니다.\n"
         f"아래 링크에서 주문을 조회할 수 있습니다.\n{qr_url}"
     )
     msg.add_attachment(
